@@ -1,0 +1,34 @@
+# NYC-taxi (UrbanGPT benchmark, HKUDS/UrbanGPT KDD'2024).
+# Not usable until you've downloaded all_nyc_taxi_263x105216x2.npz from
+# https://huggingface.co/datasets/bjdwh/ST_data_urbangpt
+#
+# NO PREDEFINED GRAPH SHIPS WITH THIS DATASET (confirmed from source: the
+# original model stores but never uses an adjacency at all -- pure
+# dilated-conv over the node axis). Use a requires_graph=False model
+# (staeformer, stid, agcrn, mtgnn, testam, st_hhol) or build your own graph
+# (e.g. scripts/build_knn_graph.py if you have region coordinates).
+dataset:
+  name: nyc_taxi
+
+data:
+  loader: nyc_taxi
+  path: data/nyc_taxi/all_nyc_taxi_263x105216x2.npz
+  target_col: inflow
+  feature_cols: [outflow]
+  start_time: "2016-01-01"   # confirmed coverage start
+  freq_minutes: 30
+  impute: true
+  n_zip: 0
+
+graph:
+  path: null
+
+split:
+  train_ratio: 0.7
+  val_ratio: 0.1
+
+window:
+  seq_len: 12
+  label_len: 12
+  pred_len: 12
+  test_stride: 1

@@ -1,0 +1,34 @@
+# NYC-bike (UrbanGPT benchmark, HKUDS/UrbanGPT KDD'2024).
+# Not usable until you've downloaded all_nyc_bike_46x47x105216x2.npz from
+# https://huggingface.co/datasets/bjdwh/ST_data_urbangpt
+#
+# NO PREDEFINED GRAPH SHIPS WITH THIS DATASET -- same as nyc_taxi.yaml. This
+# one IS a literal 46x47 2D grid though (flattened row-major to 2162 nodes
+# by the loader, ids "bike_{i}_{j}"), so a 4-/8-connected grid adjacency is
+# a natural graph to build yourself from those ids if you want a
+# requires_graph=True model -- not provided out of the box.
+dataset:
+  name: nyc_bike
+
+data:
+  loader: nyc_bike
+  path: data/nyc_bike/all_nyc_bike_46x47x105216x2.npz
+  target_col: inflow
+  feature_cols: [outflow]
+  start_time: "2016-01-01"
+  freq_minutes: 30
+  impute: true
+  n_zip: 0
+
+graph:
+  path: null
+
+split:
+  train_ratio: 0.7
+  val_ratio: 0.1
+
+window:
+  seq_len: 12
+  label_len: 12
+  pred_len: 12
+  test_stride: 1

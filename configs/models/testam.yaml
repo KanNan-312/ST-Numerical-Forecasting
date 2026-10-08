@@ -1,0 +1,18 @@
+model:
+  name: testam
+  hparams:
+    d_model: 32
+    n_heads: 4
+    n_layers: 2
+    node_emb_dim: 16
+    st_emb_dim: 16
+    memory_size: 20
+    mem_hid: 32
+    dropout: 0.3
+    warmup_frac: 0.2
+    routing_loss_weight: 0.5
+    epochs: 30
+    lr: 1.0e-3
+    weight_decay: 1.0e-4
+    patience: 7
+    batch_size: 8

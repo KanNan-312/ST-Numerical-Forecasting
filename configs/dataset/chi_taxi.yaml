@@ -1,0 +1,31 @@
+# CHI-taxi (UrbanGPT benchmark, HKUDS/UrbanGPT KDD'2024).
+# Not usable until you've downloaded the Chicago taxi npz (77 regions,
+# 17520 hourly steps -- confirmed shape) from
+# https://huggingface.co/datasets/bjdwh/ST_data_urbangpt
+#
+# NO PREDEFINED GRAPH SHIPS WITH THIS DATASET -- same as nyc_taxi.yaml.
+dataset:
+  name: chi_taxi
+
+data:
+  loader: chi_taxi
+  path: data/chi_taxi/chi_taxi.npz
+  target_col: inflow
+  feature_cols: [outflow]
+  start_time: null   # not confirmed -- set it if you know Chicago's taxi npz's true start date
+  freq_minutes: 60
+  impute: true
+  n_zip: 0
+
+graph:
+  path: null
+
+split:
+  train_ratio: 0.7
+  val_ratio: 0.1
+
+window:
+  seq_len: 12
+  label_len: 12
+  pred_len: 12
+  test_stride: 1

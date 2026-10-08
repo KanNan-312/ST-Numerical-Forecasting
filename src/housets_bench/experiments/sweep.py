@@ -10,12 +10,13 @@ import housets_bench.models
 
 from housets_bench.bundles import build_proc_bundle
 from housets_bench.bundles.datatypes import ProcBundle
-from housets_bench.data.io import AlignedData, load_aligned, subsample_zips
+from housets_bench.data.io import AlignedData, load_aligned_from_cfg
 from housets_bench.data.split import make_split
 from housets_bench.data.windowing import make_window_spec, window_label, WindowSpec
 from housets_bench.graph.loader import GraphConfig
 from housets_bench.metrics.evaluator import evaluate_forecaster
 from housets_bench.metrics.loss import evaluate_mse_loss, extract_train_history, sync_device
+from housets_bench.models.hparams import apply_hparams  # used below; also re-exported for run_loader.py
 from housets_bench.models.registry import get as get_model
 from housets_bench.transforms import ClipTransform, LogTransform, PCATransform, StageSpec, TransformPipeline, ZScoreTransform
 
@@ -55,33 +56,6 @@ def _log_dataset_summary(aligned: AlignedData, bundle: ProcBundle) -> None:
     print(f"  pipeline: {bundle.pipeline.summary()}")
     print("=" * 60)
 
-
-def _maybe_set(obj: object, name: str, value: Any) -> None:
-    if hasattr(obj, name):
-        try:
-            setattr(obj, name, value)
-        except Exception:
-            pass
-
-
-def apply_hparams(model: object, hparams: Dict[str, Any]) -> None:
-    hparams = hparams or {}
-
-    # Compatibility aliases
-    if "mode_select" in hparams and "mode_select_method" not in hparams:
-        hparams = dict(hparams)
-        hparams["mode_select_method"] = hparams["mode_select"]
-
-    for k, v in hparams.items():
-        # Chronos stores point in a tiny config dataclass
-        if k == "point" and hasattr(model, "point_cfg"):
-            try:
-                model.point_cfg.point = str(v)  
-            except Exception:
-                pass
-            continue
-
-        _maybe_set(model, k, v)
 
 def build_pipeline_from_cfg(*, schema, cfg: Dict[str, Any]) -> TransformPipeline:
     """Build TransformPipeline from config dict following order [log, clip, zscore, pca]."""
@@ -238,19 +212,8 @@ def run_one_cfg(
 ) -> Dict[str, Any]:
     t0_total = time.perf_counter()
 
-    data_cfg = cfg.get("data", {}) or {}
     if aligned is None:
-        aligned = load_aligned(
-            data_cfg.get("path"),
-            target_col=str(data_cfg.get("target_col", "price")),
-            id_col=str(data_cfg.get("id_col", "zipcode")),
-            time_col=str(data_cfg.get("time_col", "date")),
-            drop_cols=data_cfg.get("drop_cols", ("city", "city_full", "metro")),
-            feature_cols=data_cfg.get("feature_cols"),
-            impute=bool(data_cfg.get("impute", True)),
-        )
-        n_zip = int(data_cfg.get("n_zip", 0) or 0)
-        aligned = subsample_zips(aligned, n_zip)
+        aligned = load_aligned_from_cfg(cfg)
     bundle = build_bundle_from_cfg(aligned=aligned, cfg=cfg)
     _log_dataset_summary(aligned, bundle)
 

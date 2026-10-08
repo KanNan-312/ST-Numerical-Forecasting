@@ -62,6 +62,100 @@ graph — see "GNN models" below for how the graph is supplied.
 
 Add a new dataset by copying `configs/dataset/dc_house.yaml` and pointing it at your CSV.
 
+### Traffic datasets (METR-LA / PEMS-08)
+
+Standard traffic benchmarks use different raw formats than the CSV panels above, so they
+get their own loaders instead of a CSV config — set `data.loader` in the dataset config:
+
+```yaml
+data:
+  loader: metr_la          # or pems08
+  path: data/metr_la/metr-la.h5
+  target_col: speed
+  feature_cols: [time_of_day]   # DCRNN/Graph-WaveNet/MTGNN raw-channel convention
+graph:
+  path: data/metr_la/graph.npz   # build with scripts/build_traffic_graph.py
+```
+
+See `configs/dataset/metr_la.yaml` / `configs/dataset/pems08.yaml` for working examples
+(seq_len=12/pred_len=12 at 5-min resolution, 70/10/20 chronological split, matching
+DCRNN/Graph WaveNet/AGCRN's own convention). `housets_bench.data.io.load_metr_la`/
+`load_pems08` build the standard `AlignedData` panel from each format directly; build the
+matching `graph.npz` from a `from,to,cost` distances CSV with:
+
+```bash
+python scripts/build_traffic_graph.py \
+  --distances-csv data/metr_la/distances_la_2012.csv \
+  --sensor-ids data/metr_la/sensor_ids.txt \
+  --out data/metr_la/graph.npz
+```
+
+(the Gaussian-kernel-threshold adjacency confirmed from DCRNN's own `gen_adj_mx.py`).
+`PEMS-08`'s `.npz` has no embedded calendar timestamps — pass `data.start_time` (its
+commonly-cited release date) to get a real day-of-week signal; without it, `time_of_day`
+is still valid (a cyclic quantity) but day-of-week is zeroed out rather than fabricated.
+
+**Time-of-day/day-of-week handling is genuinely split across model families** (confirmed
+from each original repo's source) — the data pipeline supports both:
+- `dcrnn`/`graph_wavenet`/`mtgnn`: want time-of-day as a plain extra **input channel**, no
+  model-side change — just include `time_of_day` via `feature_cols` (both traffic loaders
+  emit it automatically).
+- `staeformer`/`stid`: want tod/dow via dedicated **embedding tables**
+  (`nn.Embedding(steps_per_day, dim)` / `nn.Embedding(7, dim)`) — set `use_tod_dow: true`
+  in the model config; they read it from `AlignedData.time_marks` (now
+  `(tod_frac, dow)` for sub-daily data, auto-detected from the timestamp granularity —
+  `(year, month)` unchanged for this benchmark's original monthly datasets), not from
+  `x_cols`. Off by default.
+- `agcrn`: the original has no time features at all in its traffic experiments; nothing
+  to add here.
+
+### Urban datasets (UrbanGPT benchmark: NYC-taxi / NYC-bike / NYC-crime / CHI-taxi)
+
+From HKUDS/UrbanGPT (KDD'2024) — data on HuggingFace at
+[`bjdwh/ST_data_urbangpt`](https://huggingface.co/datasets/bjdwh/ST_data_urbangpt).
+**None of these four ship with a predefined graph** — confirmed directly from source:
+UrbanGPT's own spatio-temporal encoder (`ST_Enc`) stores an `adj_mx` constructor argument
+but never actually references it anywhere in its forward pass; the model is pure
+dilated-convolution over the node axis, no graph convolution of any kind. So either use
+one of this registry's `requires_graph=False` models (`staeformer`, `stid`, `agcrn`,
+`mtgnn`, `testam`, `st_hhol`), or build your own graph.
+
+```yaml
+data:
+  loader: nyc_taxi      # or chi_taxi, nyc_bike, nyc_crime
+  path: data/nyc_taxi/all_nyc_taxi_263x105216x2.npz
+  target_col: inflow
+  feature_cols: [outflow]
+  start_time: "2016-01-01"   # confirmed coverage start for the NYC datasets
+graph:
+  path: null
+```
+
+See `configs/dataset/{nyc_taxi,chi_taxi,nyc_bike,nyc_crime}.yaml` for working examples.
+Confirmed from source (`instruction_generate/load_dataset.py`):
+
+| loader | raw shape | regions | channels | sampling |
+|---|---|---|---|---|
+| `nyc_taxi`  | flat `[263, T, 2]`        | 263  | `inflow`, `outflow` | 30-min |
+| `chi_taxi`  | flat `[77, T, 2]`         | 77   | `inflow`, `outflow` | hourly (inferred) |
+| `nyc_bike`  | grid `[46, 47, T, 2]`     | 2162 | `inflow`, `outflow` | 30-min |
+| `nyc_crime` | grid `[46, 47, T, 4]`     | 2162 | `burglaries`, `burglaries_aux`, `larcenies`, `larcenies_aux` | daily |
+
+`nyc_bike`/`nyc_crime`'s grid shape is flattened row-major to a flat node axis with ids
+`"{prefix}{i}_{j}"` recording the original grid position — which also means a
+4-/8-connected **grid** adjacency is a natural, trivial graph to build yourself if you want
+a `requires_graph=True` model on these two:
+
+```bash
+python scripts/build_grid_graph.py --ny 46 --nx 47 --id-prefix bike_ --out data/nyc_bike/graph.npz
+```
+
+`nyc_crime`'s daily sampling also exercises a third `time_marks` tier beyond the two
+described above: `(dow, month)` for daily-cadence data (added alongside this feature,
+since a plain `(year, month)` mark would collapse every day in a month together and lose
+exactly the day-of-week signal that matters most for daily crime counts) — see
+`housets_bench.data.io._build_time_marks`.
+
 
 ## Quick start
 
@@ -190,7 +284,9 @@ The current `configs/models/` directory includes the following model configs.
 - `staeformer` — spatio-temporal adaptive embedding transformer (XDZhelheim/STAEformer,
   AAAI 2024), direct port — it doesn't use graph convolution or the adjacency at all,
   purely temporal + spatial self-attention over learned node/adaptive embeddings;
-  time-of-day/day-of-week embeddings are omitted since this benchmark's datasets are monthly
+  time-of-day/day-of-week embeddings are **off by default** (monthly data has no
+  sub-daily/weekly periodicity) but available via `use_tod_dow: true` for traffic data
+  — see "Traffic datasets" below
 - `cast` — causal spatio-temporal representation learning (yutong-xia/CaST), direct port
   (self-discovers pseudo-environments via a VQ codebook — no external environment labels needed)
 - `stexplainer` — faithful port of the actually-shipped STGSAT model (HKUDS/STExplainer,
@@ -219,8 +315,8 @@ no coordinates, nothing): `staeformer`, `st_hhol` (above), plus three new additi
   "spatial identity" embedding — no graph convolution or attention of any kind. The
   paper's own finding is that most of what STGNNs buy you comes from breaking
   spatial/temporal sample-indistinguishability, not the graph itself; day-of-week/
-  time-of-day ("temporal identity") embeddings are dropped since this benchmark's
-  datasets are monthly
+  time-of-day ("temporal identity") embeddings are **off by default** but available
+  via `use_tod_dow: true` for traffic data — see "Traffic datasets" below
 - `agcrn` — Adaptive Graph Convolutional Recurrent Network (LeiBAI/AGCRN, NeurIPS 2020),
   direct port of its core mechanism: learns its own adjacency purely from trainable node
   embeddings (`softmax(relu(E@E.T))`) and gives every node its own graph-conv weights via
@@ -231,6 +327,29 @@ no coordinates, nothing): `staeformer`, `st_hhol` (above), plus three new additi
   mechanism: learns a **directed**, top-k-sparsified adjacency from two node-embedding
   matrices, then alternates dilated-inception temporal convolution (parallel kernel
   sizes 2/3/6/7) with mix-hop graph propagation over the learned graph and its transpose
+- `testam` — Time-Enhanced Spatio-temporal Attention Model with Mixture of experts
+  (Lee & Ko, ICLR 2024): 3 experts (identity/no-graph, a learned-static-adjacency GCN, a
+  fully dynamic-attention graph) gated by a shared memory bank with **hard top-1 routing**
+  (same at train and eval), plus a warmup-then-routing-loss training schedule. Macro
+  architecture confirmed from source; some tensor-level formulas are a documented
+  reconstruction — see the module docstring for exactly which
+
+### Ensembles / mixture-of-experts
+
+- `ensemble_st` — a fixed, **equal-weight** ensemble over a configurable list of this
+  registry's own models (`sub_models`, default `[gcn_tcn, stgformer, dcrnn]`): trains every
+  selected sub-model itself, then averages their predictions with zero extra trainable
+  parameters — the standard "zero-parameter ensemble" baseline this line of literature
+  (e.g. GC-MoE below) compares learned routing against. Appears as one model, usable
+  directly via `run_one.py --model ensemble_st`, no separate orchestration script needed.
+- `gc_moe` — "Graph-Conditioned Mixture of Graph Neural Network Experts" (Ghaffari,
+  Sheikhi & Gilman): trains a configurable list of experts (`expert_models`) fully, freezes
+  every one of them, then trains only a small router that fuses 9 real graph-topology
+  features (degree, closeness, clustering, PageRank, betweenness, k-core, eigenvector
+  centrality, the Fiedler vector, the 3rd Laplacian eigenvector — via `networkx`) with a
+  temporal-attention summary of the current input window into per-node **soft** mixture
+  weights. Unlike `ensemble_st`/`testam`, this one genuinely needs a real adjacency
+  (`graph.path` required) since the router is conditioned on it.
 
 ### Foundation-model variants
 

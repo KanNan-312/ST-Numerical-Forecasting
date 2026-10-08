@@ -31,11 +31,17 @@ class GraphWindowDataset(Dataset):
 
         "x": [L, N, Dx]       — encoder input  (all ZIPs, seq_len steps)
         "y": [pred_len, N, Dy] — forecast target (all ZIPs, pred_len steps)
+        "x_mark": [L, Dm]      — time marks for the encoder window (same
+                                 regardless of node — sliced from
+                                 ``bundle.aligned_proc.time_marks``, the same
+                                 array :class:`~housets_bench.data.dataset.WindowDataset`
+                                 already uses for DL models)
 
     After :func:`graph_collate`, a batch has::
 
         "x": [B, L, N, Dx]
         "y": [B*N, pred_len, Dy]  — flattened for StreamingEvaluator
+        "x_mark": [B, L, Dm]
     """
 
     def __init__(self, bundle: ProcBundle, split: str) -> None:
@@ -49,6 +55,7 @@ class GraphWindowDataset(Dataset):
         self._x_idx = [name_to_idx[c] for c in bundle.x_cols]
         self._y_idx = [name_to_idx[c] for c in bundle.y_cols]
         self._values = torch.tensor(values, dtype=torch.float32)  # [N, T, D]
+        self._time_marks = torch.tensor(bundle.aligned_proc.time_marks, dtype=torch.float32)  # [T, Dm]
 
         split_range = bundle.raw.split.range(split)
         seq_len = bundle.raw.spec.seq_len
@@ -83,8 +90,9 @@ class GraphWindowDataset(Dataset):
         x = self._values[:, t : t + L, :][:, :, self._x_idx].permute(1, 0, 2)
         # [N, H, Dy] → [H, N, Dy]
         y = self._values[:, t + L : t + L + H, :][:, :, self._y_idx].permute(1, 0, 2)
+        x_mark = self._time_marks[t : t + L, :]  # [L, Dm]
 
-        return {"x": x, "y": y}
+        return {"x": x, "y": y, "x_mark": x_mark}
 
 
 def graph_collate(batch):
@@ -102,6 +110,7 @@ def graph_collate(batch):
     """
     x = torch.stack([b["x"] for b in batch])  # [B, L, N, Dx]
     y = torch.stack([b["y"] for b in batch])   # [B, H, N, Dy]
+    x_mark = torch.stack([b["x_mark"] for b in batch])  # [B, L, Dm]
     B, H, N, Dy = y.shape
     y_flat = y.permute(0, 2, 1, 3).reshape(B * N, H, Dy)  # [B*N, H, Dy]
-    return {"x": x, "y": y_flat}
+    return {"x": x, "y": y_flat, "x_mark": x_mark}

@@ -49,6 +49,13 @@ from .gnn.stexplainer import STExplainerForecaster  # noqa: F401
 from .gnn.stid import STIDForecaster  # noqa: F401
 from .gnn.agcrn import AGCRNForecaster  # noqa: F401
 from .gnn.mtgnn import MTGNNForecaster  # noqa: F401
+from .gnn.testam import TESTAMForecaster  # noqa: F401
+
+# fixed-weight ensemble over a configurable list of this registry's own models
+from .ensemble_st import EnsembleSTForecaster  # noqa: F401
+
+# frozen pretrained experts + trained graph-conditioned router
+from .gc_moe import GCMoEForecaster  # noqa: F401
 
 # optional foundation-model wrappers
 from .foundation.timesfm import TimesFMZeroForecaster, TimesFMCalibratedForecaster, TimesFMFullFineTuneForecaster  

@@ -223,6 +223,14 @@ class GNNForecasterBase(BaseForecaster):
         self._pred_len: Optional[int] = None
         self._graph_dataloaders: Optional[Dict[str, DataLoader]] = None
         self.train_history: List[Dict[str, Any]] = []
+        # Current batch's time marks ([B, L, Dm], e.g. tod_frac/dow for
+        # traffic data), refreshed right before every _graph_forward(_train)
+        # call -- same instance-state pattern as self._A_norm/_A_raw, so
+        # subclasses that want it (e.g. STAEformer/STID's tod/dow embeddings)
+        # read it directly instead of it being a method parameter every one
+        # of this class's ~15 existing _graph_forward overrides would
+        # otherwise have to accept.
+        self._x_mark: Optional[torch.Tensor] = None
 
     # ── subclass hooks ────────────────────────────────────────────────────────
 
@@ -385,6 +393,7 @@ class GNNForecasterBase(BaseForecaster):
 
                 x = batch["x"].to(dev)       # [B, L, N, Dx]
                 y_true = batch["y"].to(dev)   # [B*N, pred_len, Dy]
+                self._x_mark = batch["x_mark"].to(dev) if "x_mark" in batch else None
                 B = x.shape[0]
 
                 # reshape y_true to the network's own output layout, [B, pred_len, N, Dy],
@@ -423,6 +432,7 @@ class GNNForecasterBase(BaseForecaster):
                 for batch in val_bar:
                     x = batch["x"].to(dev)
                     y_true = batch["y"].to(dev)
+                    self._x_mark = batch["x_mark"].to(dev) if "x_mark" in batch else None
                     B = x.shape[0]
                     y_hat = self._graph_forward(net, x)
                     Dy = y_hat.shape[-1]
@@ -479,6 +489,7 @@ class GNNForecasterBase(BaseForecaster):
         self._net.eval()
 
         x = batch["x"].to(dev)  # [B, L, N, Dx]
+        self._x_mark = batch["x_mark"].to(dev) if "x_mark" in batch else None
         B, L, N, _ = x.shape
 
         with torch.no_grad():

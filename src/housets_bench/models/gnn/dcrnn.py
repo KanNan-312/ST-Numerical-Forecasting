@@ -14,6 +14,16 @@ ground-truth previous step vs. the model's own prediction, with a decaying
 probability) via :meth:`DCRNNForecaster._graph_forward_train`; eval/predict are
 always free-running (:meth:`DCRNNForecaster._graph_forward`), so no ground truth
 ever leaks into evaluation.
+
+Traffic data (confirmed from liyaguang/DCRNN's own ``generate_training_data.py``):
+the original adds time-of-day as a plain extra **input channel** (no
+model-side embedding at all), computed in the data-prep script, not the
+network. No model change is needed here for that — the traffic data loaders
+(``housets_bench.data.io.load_metr_la``/``load_pems08``) already emit a
+``time_of_day`` column; just include it via the dataset config's
+``feature_cols`` (e.g. ``feature_cols: [time_of_day]``) and it flows into
+this model as an ordinary extra channel of ``bundle.x_cols``, exactly
+matching the original convention.
 """
 from __future__ import annotations
 

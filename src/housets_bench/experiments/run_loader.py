@@ -13,7 +13,7 @@ import torch
 
 import housets_bench.models  # noqa: F401 — populates the model registry
 from housets_bench.bundles.datatypes import ProcBundle
-from housets_bench.data.io import load_aligned, subsample_zips
+from housets_bench.data.io import load_aligned_from_cfg
 from housets_bench.experiments.sweep import apply_hparams, build_bundle_from_cfg
 from housets_bench.models.base import BaseForecaster
 from housets_bench.models.registry import get as get_model
@@ -49,18 +49,7 @@ def load_run(
 
     dev = device if device is not None else torch.device(str((cfg.get("run", {}) or {}).get("device", "cpu")))
 
-    data_cfg = cfg.get("data", {}) or {}
-    aligned = load_aligned(
-        data_cfg.get("path"),
-        target_col=str(data_cfg.get("target_col", "price")),
-        id_col=str(data_cfg.get("id_col", "zipcode")),
-        time_col=str(data_cfg.get("time_col", "date")),
-        drop_cols=data_cfg.get("drop_cols", ("city", "city_full", "metro")),
-        feature_cols=data_cfg.get("feature_cols"),
-        impute=bool(data_cfg.get("impute", True)),
-    )
-    n_zip = int(data_cfg.get("n_zip", 0) or 0)
-    aligned = subsample_zips(aligned, n_zip)
+    aligned = load_aligned_from_cfg(cfg)
 
     bundle = build_bundle_from_cfg(aligned=aligned, cfg=cfg)
 

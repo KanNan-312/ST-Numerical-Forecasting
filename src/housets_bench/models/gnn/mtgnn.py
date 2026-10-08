@@ -22,6 +22,12 @@ original's subgraph-sampling curriculum (for scaling to thousands of nodes)
 is dropped as irrelevant at this benchmark's node counts, and training uses
 the benchmark's standard full-horizon MSE loss rather than the paper's
 step-wise curriculum.
+
+Traffic data: MTGNN's own traffic experiments follow the same DCRNN/Graph
+WaveNet-family convention (confirmed from source) — time-of-day as a plain
+extra **input channel**, no model-side embedding. No model change needed
+here either; include ``time_of_day`` via the dataset config's
+``feature_cols`` (see ``housets_bench.data.io.load_metr_la``/``load_pems08``).
 """
 from __future__ import annotations
 

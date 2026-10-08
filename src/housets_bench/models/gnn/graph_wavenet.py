@@ -1,3 +1,15 @@
+"""Graph WaveNet (Wu et al., IJCAI 2019).
+
+Reference: https://github.com/nnzhan/Graph-WaveNet
+
+Traffic data (confirmed from the original repo's own
+``generate_training_data.py``): time-of-day is a plain extra **input
+channel** (no model-side embedding), computed in the data-prep script. No
+model change is needed here for that — ``housets_bench.data.io.load_metr_la``/
+``load_pems08`` already emit a ``time_of_day`` column; include it via the
+dataset config's ``feature_cols`` and it flows in as an ordinary extra
+channel of ``bundle.x_cols``, matching the original convention exactly.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass

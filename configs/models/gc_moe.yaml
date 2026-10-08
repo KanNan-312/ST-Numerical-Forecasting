@@ -1,0 +1,14 @@
+model:
+  name: gc_moe
+  hparams:
+    # Experts are trained fully (with their own defaults, or an override
+    # below) then frozen; only the router is trained after that.
+    expert_models: [gcn_tcn, stgformer, dcrnn]
+    expert_hparams: {}
+    embed_dim: 32
+    dynamic_dim: 32
+    top_k: null          # null -> dense softmax over all experts; set an int to sparsify
+    temperature: 1.0
+    router_epochs: 20
+    router_lr: 1.0e-3
+    router_patience: 5

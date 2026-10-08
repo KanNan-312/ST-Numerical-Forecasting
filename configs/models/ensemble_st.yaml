@@ -1,0 +1,13 @@
+model:
+  name: ensemble_st
+  hparams:
+    # Fixed, equal-weight ensemble -- every sub-model is trained with its own
+    # defaults (or an override below) on the same data, then predictions are
+    # simply averaged. Edit this list to whichever ST baselines you want to
+    # compare against single-model and GC-MoE (learned-router) results.
+    sub_models: [stid, dcrnn, graph_wavenet, agcrn, staeformer]
+    sub_model_hparams: {}
+    # Example per-sub-model override:
+    # sub_model_hparams:
+    #   dcrnn:
+    #     epochs: 20
