@@ -3,7 +3,7 @@ model:
   hparams:
     # Experts are trained fully (with their own defaults, or an override
     # below) then frozen; only the router is trained after that.
-    expert_models: [gcn_tcn, stgformer, dcrnn]
+    expert_models: [graph_wavenet, stgcn, agcrn]
     expert_hparams: {}
     embed_dim: 32
     dynamic_dim: 32

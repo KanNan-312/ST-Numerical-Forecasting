@@ -10,27 +10,21 @@ MODELS=(
   # "gpt4ts"
   # "chronos2_zero"
   "timesfm_zero"
-  # "staeformer"
-  # "stid"
-  # "agcrn"
-  # "mtgnn"
-  # "stgcn"
-  # "stsgcn"
-  # "graph_wavenet"
-  # "dcrnn"
-  # "d2stgnn"
-  # "stgformer"
-  # "stllm_plus"
-  # "aist"
-  # "stexplainer"
-  # "cast"
+  "dcrnn"
+  "stgcn"
+  "graph_wavenet"
+  "acgrn"
+  "mtgnn"
+  "stid"
+  "staeformer"
+  "d2stgnn"
+  "gc_moe"
+  "testam"
 )
 
 
 DATASETS=(
   "chicago_crime"
-  # "seattle_house"
-  # "redfin_metro_house"
 )
 
 for DATASET in "${DATASETS[@]}"; do
