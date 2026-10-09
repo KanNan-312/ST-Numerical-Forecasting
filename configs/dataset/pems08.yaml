@@ -5,7 +5,7 @@
 # distance/adjacency CSV. `start_time` below is PEMS08's commonly-cited
 # release start date -- confirm it against your own copy's documentation;
 # without a correct start_time, day-of-week signal is zeroed out (see
-# housets_bench.data.io.load_pems08's docstring) rather than fabricated.
+# st_numeric_baselines.data.io.load_pems08's docstring) rather than fabricated.
 dataset:
   name: pems08
 

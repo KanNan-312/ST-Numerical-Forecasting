@@ -12,7 +12,7 @@
 #
 # Daily sampling -- time_marks uses (dow, month), not (year, month), so
 # day-of-week periodicity (the dominant signal for daily crime counts)
-# isn't lost -- see housets_bench.data.io._build_time_marks.
+# isn't lost -- see st_numeric_baselines.data.io._build_time_marks.
 dataset:
   name: nyc_crime
 

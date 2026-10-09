@@ -1,14 +1,58 @@
-# HouseTS: A Large-Scale, Multimodal Spatiotemporal U.S. Housing Dataset + Benchmark
+# st-numeric-baselines
 
-This repository contains the  **benchmark** for **HouseTS**, a large-scale multimodal spatiotemporal dataset for long-horizon housing-market forecasting at the U.S. ZIP-code level.
+Numeric (non-LLM) spatiotemporal forecasting baselines across region-based
+domains: housing (the namesake **HouseTS** dataset — a large-scale
+multimodal spatiotemporal dataset for long-horizon housing-market
+forecasting at the U.S. ZIP-code level), crime, and traffic/urban-mobility
+panels (METR-LA, PEMS-08, the UrbanGPT benchmark). Covers statistical/ML
+baselines, deep sequence models, graph neural networks, foundation-model
+wrappers, and ensemble/mixture-of-experts model-selection research
+(oracle/ensemble upper-bound analysis, GC-MoE, TESTAM) — see "Project
+structure" below for the full map.
 
-HouseTS aligns multiple modalities under a unified ZIP-month panel, including:
+HouseTS itself aligns multiple modalities under a unified ZIP-month panel:
 - **Monthly housing-market indicators**
 - **Monthly POI counts**
 - **Annual census / socioeconomic variables** aligned to the monthly timeline
 - (Dataset also includes auxiliary modalities such as aerial imagery + derived annotations; see Kaggle for full contents.)
 
 The benchmark supports **univariate** and **multivariate** forecasting with standardized train/val/test splitting, windowing, transforms, and evaluation.
+
+## Install
+
+```bash
+pip install -e .                 # core deps (numpy/pandas/torch/sklearn/xgboost/...)
+pip install -e ".[graph]"        # + networkx/libpysal (gc_moe's router, knn-graph builder)
+pip install -e ".[foundation]"   # + transformers/chronos/timesfm (foundation-model wrappers)
+pip install -e ".[traffic-h5]"   # + tables (pandas.read_hdf, for METR-LA's .h5 format)
+pip install -e ".[all]"          # everything above
+```
+
+Every script under `scripts/` then runs directly (`python scripts/run_one.py ...`)
+— no `sys.path` hacks, no need to run from any particular directory.
+
+## Project structure
+
+```
+configs/
+  default.yaml          base split/window/transform/dataloader defaults
+  dataset/<name>.yaml    one file per dataset (path, columns, graph, split/window overrides)
+  task/<name>.yaml       univariate.yaml / multivariate.yaml (features_mode)
+  models/<name>.yaml     one file per registered model (hparams)
+data/                    real datasets (dc_house, seattle_house, chicago_crime)
+st_numeric_baselines/
+  data/                  loading, schema, imputation, split, windowing, dataset/dataloader
+  graph/                 graph.npz loading + sparse-adjacency utils
+  bundles/               RawBundle / ProcBundle dataclasses + builder
+  transforms/            log / clip / zscore / pca pipeline stages
+  models/                the full model registry (base.py, registry.py, hparams.py) —
+                         naive/, stats/, ml/, dl/, gnn/, foundation/, plus ensemble_st.py / gc_moe.py
+  metrics/               evaluator, loss helpers, reporting (per dataset x model x forecast-config)
+  experiments/           sweep.py (run_one_cfg), run_loader.py, artifacts.py, explainable_library.py
+  case_library.py, oracle_selection.py, explain.py, shap_occlusion.py   # case-library / explainability
+scripts/                 CLI entry points — run_one.py is the main one; see "Quick start" below
+archive/                 retired pre-existing files, kept for reference (see archive/README.md)
+```
 
 ---
 
@@ -35,14 +79,15 @@ You can also point to `.csv`, `.parquet`, or `.xlsx` via config/CLI.
 The benchmark is dataset-agnostic: everything specific to one dataset (file path,
 id/time/target columns, which columns to model, drop list, and the graph settings for GNN
 models) lives in one YAML file under `configs/dataset/`. `configs/dataset/dc_house.yaml`
-is the working example (matches `data/DC_House.csv`); `configs/dataset/housets.yaml` is a
-template for the full HouseTS.csv.
+is the working example (matches `data/dc_house/DC_House.csv`); `configs/dataset/housets.yaml`
+is a template for the full HouseTS.csv (not usable until you've downloaded it — see
+"Dataset" above).
 
 ```yaml
 dataset:
   name: dc_house
 data:
-  path: data/DC_House.csv
+  path: data/dc_house/DC_House.csv
   id_col: zipcode
   time_col: date
   target_col: price
@@ -79,7 +124,7 @@ graph:
 
 See `configs/dataset/metr_la.yaml` / `configs/dataset/pems08.yaml` for working examples
 (seq_len=12/pred_len=12 at 5-min resolution, 70/10/20 chronological split, matching
-DCRNN/Graph WaveNet/AGCRN's own convention). `housets_bench.data.io.load_metr_la`/
+DCRNN/Graph WaveNet/AGCRN's own convention). `st_numeric_baselines.data.io.load_metr_la`/
 `load_pems08` build the standard `AlignedData` panel from each format directly; build the
 matching `graph.npz` from a `from,to,cost` distances CSV with:
 
@@ -154,7 +199,7 @@ python scripts/build_grid_graph.py --ny 46 --nx 47 --id-prefix bike_ --out data/
 described above: `(dow, month)` for daily-cadence data (added alongside this feature,
 since a plain `(year, month)` mark would collapse every day in a month together and lose
 exactly the day-of-week signal that matters most for daily crime counts) — see
-`housets_bench.data.io._build_time_marks`.
+`st_numeric_baselines.data.io._build_time_marks`.
 
 
 ## Quick start
@@ -377,7 +422,7 @@ np.savez("graph.npz", A=A, ids=np.array(ids))
 - `ids`: length-`N` array of region ids giving `A`'s row/column order (`ids[i]` is the
   region at row/col `i`) — these must match the dataset's id column values.
 
-At load time (`src/housets_bench/graph/loader.py`), the graph is **reindexed by matching
+At load time (`st_numeric_baselines/graph/loader.py`), the graph is **reindexed by matching
 `ids` against the dataset's actual region ids** — not by trusting row order — so it works
 correctly regardless of what order the matrix was built in, and after any `--n-zip`
 subsampling (only the subsampled regions are looked up; a region missing from `ids` raises
@@ -445,6 +490,69 @@ time step.
 
 ---
 
+## Alignment with BasicTS
+
+A deeper follow-up check than the one originally done here. The first pass
+only cross-referenced [BasicTS](https://github.com/GestaltCogTeam/BasicTS)'s
+README "Spatial-Temporal Forecasting" table by model *name* and claimed "8
+direct architectural matches" — that claim was **overstated** and has been
+corrected below after actually fetching BasicTS's source.
+
+**The corrected finding**: BasicTS's own vendored model zoo
+(`src/basicts/models/`, 28 entries total, confirmed exhaustively) contains
+exactly **one** model from that list of 8 — `STID`. The other seven
+(`dcrnn`, `graph_wavenet`, `stgcn`, `agcrn`, `mtgnn`, `d2stgnn`,
+`staeformer`) are **not implemented in BasicTS's codebase at all** — its
+README table lists them with a venue + a link to the *original authors' own
+repos* (e.g. `liyaguang/DCRNN`, `nnzhan/Graph-WaveNet`, `LeiBAI/AGCRN`,
+`nnzhan/MTGNN`, `zezhishao/D2STGNN`, `XDZhelheim/STAEformer`) for
+reproducibility, not as a BasicTS reimplementation. So "alignment with
+BasicTS" was never the right frame for those seven — this registry's own
+model docstrings already cite and port from those same original repos
+directly, which is the correct and only real reference standard for them.
+
+**For the one model BasicTS actually implements (`STID`), a real
+line-by-line comparison was done** against `st_numeric_baselines/models/gnn/stid.py`:
+- **Confirmed exact match**: BasicTS derives tod/dow indices from the
+  lookback window's **last timestep only** (`inputs_timestamps[:, -1, 0/1]`)
+  — exactly this registry's design (`stid.py`'s `x_mark[:, -1, :]`). This
+  was a judgment call made independently on this side; BasicTS's real
+  source confirms it was the right one.
+- **Hyperparameter capacity differences, not bugs**: BasicTS's default
+  config sets all embedding dims (spatial/tod/dow/input) to a uniform 32
+  and `num_layers=1`; this registry's `configs/models/stid.yaml` uses
+  `embed_dim=32` (matches) but `node_emb_dim`/`tod_embedding_dim`/
+  `dow_embedding_dim=16` (half) and `n_layers=3`. Worth aligning if exact
+  reproduction of BasicTS's own numbers is ever the goal; not a
+  correctness issue either way.
+- **Necessary generalization, not a divergence**: BasicTS's STID assumes a
+  univariate per-node input (`Dx=1`); this registry's `history_encoder`
+  flattens `seq_len * input_dim` together because every dataset here is
+  genuinely multivariate (multiple feature columns per node). Required for
+  this benchmark's data, not a deviation from a reference bug.
+
+**Data/scaler pipeline**: BasicTS's z-score scaler and this registry's
+`ZScoreTransform` use the identical formula (`(x-mean)/std`, zero-std
+guarded to 1.0) fit on the train split only — confirmed equivalent. One
+real terminology gap worth knowing: BasicTS's `norm_each_channel=True`
+means per-node-per-feature (matches this registry's `scope: per_zip`
+exactly), while `norm_each_channel=False` means **one single scalar for
+the entire tensor** — this registry's own `scope: global` default is
+neither of those; it's per-*feature*, shared across nodes (the right
+choice here, since this benchmark's columns are heterogeneous — e.g. price
+vs. homes_sold — and a single scalar across all of them would be wrong,
+but it has no BasicTS equivalent, so don't assume the two "global"s mean
+the same thing).
+
+**This registry's domain-specific additions outside BasicTS's scope
+entirely** (not a gap — BasicTS doesn't cover these problem settings at
+all): `aist`/`st_hhol` (crime-specific simplified ports), `cast`/
+`stexplainer` (causal/explainability research), `testam`/`gc_moe`/
+`ensemble_st` (mixture-of-experts / model-selection research — this repo's
+own distinctive angle).
+
+---
+
 ## Case library: per-instance best model + neighbor explainability
 
 Once you have trained checkpoints under `runs/`, `scripts/build_case_library.py`
@@ -508,7 +616,7 @@ python scripts/build_oracle_report.py \
 ```
 
 It scores every model on every shared instance (reusing
-`housets_bench.case_library.build_case_library`), then for each instance
+`st_numeric_baselines.case_library.build_case_library`), then for each instance
 computes:
 
 - **Oracle** — the error of whichever model scored lowest MAE *on that
@@ -550,7 +658,7 @@ since a "winner" can't be fairly attributed without every model's score for
 that instance.
 
 `scripts/explain_instance.py` gives an on-demand, model-agnostic breakdown of
-one instance's forecast via **occlusion** (`housets_bench.explain.occlusion_sensitivity`):
+one instance's forecast via **occlusion** (`st_numeric_baselines.explain.occlusion_sensitivity`):
 replace one object — a neighbor node's whole feature vector, or one feature
 channel — with its **mean over the training history** (an actual
 in-distribution value, computed per-node/per-feature from the model's own
@@ -602,7 +710,7 @@ Writes three CSVs:
 - **`forecasts_detail.csv`** — point forecasts from all 3 runs, every instance
   (same shape as `build_case_library.py`'s detail table).
 - **`feature_importance.csv`** — grouped **exact Shapley** feature importance for
-  the multivariate model (`housets_bench.shap_occlusion`, implementing
+  the multivariate model (`st_numeric_baselines.shap_occlusion`, implementing
   arXiv:2604.28149's method: exact Shapley value over `2^N` coalitions of
   feature groups — one group per covariate by default, `2^N` model evaluations
   per instance). Masking is native (missing values, which Chronos's own

@@ -1,7 +1,7 @@
 """Standalone builder: geographic k-NN adjacency graph -> graph.npz.
 
 Not imported by the benchmark itself — the benchmark only ever loads a
-finished graph.npz (see src/housets_bench/graph/loader.py). This script is a
+finished graph.npz (see st_numeric_baselines/graph/loader.py). This script is a
 one-off/offline tool: run it once against a CSV of (id, lat, lon) to produce
 the graph.npz that a GNN model's dataset config then points `graph.path` at.
 

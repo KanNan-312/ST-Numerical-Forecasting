@@ -39,17 +39,15 @@ Omit --models to include every run found directly under --runs-root.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import List, Optional
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
 
 import torch
 
-from housets_bench.oracle_selection import build_oracle_report
-from housets_bench.utils.config import load_yaml
+from st_numeric_baselines.oracle_selection import build_oracle_report
+from st_numeric_baselines.utils.config import load_yaml
 
 
 def parse_args() -> argparse.Namespace:

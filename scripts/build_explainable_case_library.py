@@ -31,17 +31,15 @@ Usage
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import List, Optional
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
 
 import torch
 
-from housets_bench.experiments.explainable_library import build_explainable_case_library
-from housets_bench.utils.config import load_yaml
+from st_numeric_baselines.experiments.explainable_library import build_explainable_case_library
+from st_numeric_baselines.utils.config import load_yaml
 
 
 def parse_args() -> argparse.Namespace:

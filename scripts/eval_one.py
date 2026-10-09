@@ -14,20 +14,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
 
 import torch
 
-from housets_bench.experiments.artifacts import save_json
-from housets_bench.experiments.run_loader import load_run
-from housets_bench.data.windowing import window_label
-from housets_bench.metrics.evaluator import evaluate_forecaster
+from st_numeric_baselines.experiments.artifacts import save_json
+from st_numeric_baselines.experiments.run_loader import load_run
+from st_numeric_baselines.data.windowing import window_label
+from st_numeric_baselines.metrics.evaluator import evaluate_forecaster
 
 
 def parse_args() -> argparse.Namespace:

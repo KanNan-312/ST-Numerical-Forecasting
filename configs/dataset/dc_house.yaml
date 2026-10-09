@@ -1,0 +1,34 @@
+# DC House (Washington DC metro ZIP-level monthly housing panel). The
+# working, data-present example referenced throughout README.md.
+dataset:
+  name: dc_house
+
+data:
+  path: data/dc_house/DC_House.csv
+  id_col: zipcode
+  time_col: date
+  target_col: price
+  feature_cols: [median_sale_price, median_list_price, homes_sold, pending_sales,
+                 new_listings, inventory, median_dom, avg_sale_to_list, "Total Population"]
+  drop_cols: [city, metro, state, latitude, longitude]
+  freq: M   # monthly
+  impute: true
+  n_zip: 0
+
+graph:
+  # No graph.npz built yet for this dataset. DC_House.csv has latitude/longitude
+  # columns, so build one with:
+  #   python scripts/build_knn_graph.py --input data/dc_house/DC_House.csv \
+  #     --id-col zipcode --lat-col latitude --lon-col longitude \
+  #     --k 10 --max-km 100 --out data/dc_house/graph.npz
+  path: null
+
+split:
+  train_ratio: 0.7
+  val_ratio: 0.1
+
+window:
+  seq_len: 12
+  label_len: 12
+  pred_len: 12
+  test_stride: 3

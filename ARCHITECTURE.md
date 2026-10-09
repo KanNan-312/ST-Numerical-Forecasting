@@ -1,30 +1,33 @@
-# HouseTS Benchmark – Code Architecture
+# st-numeric-baselines – Code Architecture
 
 ## Repository layout
 
 ```
-Housets_data_bench/
-├── configs/                  # YAML config fragments
-│   ├── default.yaml          # base defaults (split ratios, window shape, transforms, dataloader)
-│   ├── dataset/               # one file per dataset (path, id/time/target/feature cols, graph,
-│   │                          #  optionally its own window:/split: overrides)
-│   ├── task/                  # univariate.yaml / multivariate.yaml  (features_mode)
-│   └── models/                  # one file per model  (model.name, model.hparams)
-├── scripts/
-│   ├── run_one.py             # ← main entry point
-│   ├── eval_one.py            # re-evaluate a saved checkpoint
-│   └── make_report.py         # collect runs/ into result tables
-├── src/housets_bench/
-│   ├── data/                   # loading, schema, imputation, split, windowing, dataset
-│   ├── graph/                   # k-NN graph / adjacency-matrix loading, sparse adj utils
-│   ├── bundles/                  # RawBundle / ProcBundle dataclasses + builder
-│   ├── transforms/                # log / clip / zscore / pca stages + pipeline
-│   ├── models/                     # all forecasters (base, registry, dl/, ml/, stats/, gnn/, ...)
-│   ├── metrics/                     # evaluator, loss helpers, regression metrics
-│   ├── experiments/                  # sweep.py, artifacts.py
-│   └── utils/                         # config loading, deep_update, path resolution
-└── runs/<dataset>/<model>__<task>__<window>/   # output directory (auto-created)
+configs/                      # YAML config fragments
+  default.yaml                # base defaults (split ratios, window shape, transforms, dataloader)
+  dataset/                    # one file per dataset (path, id/time/target/feature cols, graph,
+                               #  data.loader for non-CSV formats, optionally window:/split: overrides)
+  task/                       # univariate.yaml / multivariate.yaml  (features_mode)
+  models/                     # one file per model  (model.name, model.hparams)
+scripts/                      # CLI entry points -- run_one.py is the main one
+st_numeric_baselines/
+  data/                       # loading (csv + metr_la/pems08/nyc_*/chi_* loaders), schema,
+                               #  imputation, split, windowing, dataset/graph_dataset
+  graph/                      # graph.npz loading, sparse-adjacency utils
+  bundles/                    # RawBundle / ProcBundle dataclasses + builder
+  transforms/                 # log / clip / zscore / pca stages + pipeline
+  models/                     # the full registry (base, registry, hparams) --
+                               #  naive/, stats/, ml/, dl/, gnn/, foundation/, ensemble_st.py, gc_moe.py
+  metrics/                    # evaluator, loss helpers, reporting (per dataset x model x forecast-config)
+  experiments/                # sweep.py (run_one_cfg), run_loader.py, artifacts.py, explainable_library.py
+  case_library.py, oracle_selection.py, explain.py, shap_occlusion.py
+archive/                      # retired pre-existing files, kept for reference
+data/                         # real datasets (dc_house, seattle_house, chicago_crime)
+runs/<dataset>/<model>__<task>__<window>/   # output directory (auto-created, gitignored)
 ```
+
+Installed as an editable package (`pip install -e .`, see README "Install")
+— no `sys.path` hacks in `scripts/`.
 
 ---
 
@@ -172,12 +175,25 @@ All public class attributes (e.g. `epochs`, `lr`, `hidden_size`) become hyper-pa
 
 | Family | Files | Notes |
 |--------|-------|-------|
-| DL | `dl/{dlinear,rnn,lstm,patchtst,timemixer,informer,autoformer,fedformer}.py` | Full training loop inside `fit()` |
+| DL | `dl/{dlinear,rnn,lstm,patchtst,timemixer,informer,autoformer,fedformer,itransformer,gpt4ts,timellm}.py` | Full training loop inside `fit()` |
 | ML | `ml/{rf,xgb}.py` | Flatten windows → sklearn/XGBoost fit |
-| Stats | `stats/ardl.py` | statsmodels ARDL |
-| Naive | `naive/ar_univariate.py` | per-ZIP AR(p) |
-| Foundation | `foundation/{chronos,timesfm}.py` | zero-shot or fine-tuned |
-| GNN | `gnn/gnn_forecaster.py` (+ `gcn_tcn_geo,graph_wavenet,stgcn` net modules) | spatial graph models; graph loaded from `RawBundle.graph.path` (a graph.npz) |
+| Stats / Naive | `stats/ardl.py`, `naive/ar_univariate.py` | statsmodels-free Ridge/PCA ARDL, per-ZIP AR(p) |
+| Foundation | `foundation/{chronos,timesfm}.py` | zero-shot, calibrated, or fine-tuned |
+| GNN | `gnn/gnn_forecaster.py` (shared `GNNForecasterBase` training loop) + one file per model: `gcn_tcn_geo, graph_wavenet, stgcn, stsgcn, stllm_plus, dcrnn, stgformer, d2stgnn, cast, stexplainer, aist, st_hhol, staeformer, stid, agcrn, mtgnn, testam` | Graph exposed as instance state (`self._A_raw`/`self._A_norm`), not a forward-signature argument. A model sets `requires_graph = False` if it never needs one (`staeformer`, `st_hhol`, `stid`, `agcrn`, `mtgnn`, `testam`) — then `dataset.graph.path` can be left unset. |
+| Ensembles / MoE | `ensemble_st.py` (fixed equal-weight), `gc_moe.py` (frozen experts + trained graph-conditioned router) | Both delegate to other registered models' own `fit()`/`predict_batch` rather than training one net themselves |
+
+### Case library, oracle, and explainability (package-root, not a subpackage)
+
+`case_library.py` (per-instance best-model-per-instance scoring across a set
+of trained runs), `oracle_selection.py` (the selection-gap: oracle vs. best
+single model vs. ensemble, upper-bound for per-instance model-selection
+research), `explain.py` + `shap_occlusion.py` (occlusion-based and
+grouped-Shapley feature/neighbor importance), plus
+`experiments/explainable_library.py` (ties a univariate + multivariate +
+STExplainer run together into one 3-model-family explanation report). See
+the README's "Case library" / "Oracle" / "Explainable case library"
+sections for the corresponding `scripts/build_*`/`explain_instance.py` CLI
+entry points.
 
 ---
 
@@ -274,7 +290,8 @@ A second pass via `evaluate_mse_loss` computes **processed-space MSE** (no inver
 
 ```
 run_one_cfg(cfg, device)
-  load_aligned(data.path)             # Step 1: load + align
+  load_aligned_from_cfg(cfg)          # Step 1: dispatches on data.loader (csv / metr_la /
+                                       #  pems08 / nyc_taxi / chi_taxi / nyc_bike / nyc_crime)
   [optional: subsample n_zip ZIPs]
   build_bundle_from_cfg(aligned, cfg) # Steps 2–5 above
   _log_dataset_summary(aligned, bundle)  # prints ZIPs × T, split sizes, window, pipeline
@@ -285,8 +302,13 @@ run_one_cfg(cfg, device)
   evaluate_forecaster(model, bundle, split="test")
   evaluate_mse_loss(model, bundle, split="train/val/test")
   extract_train_history(model)
-  → dict with "model", "task", "window", "val", "test", "n_train/val/test",
-              "timing", "loss", "pipeline", ["train_history"]
+  → dict with "dataset", "model", "task", "window", "forecast_config"
+              (seq_len/label_len/pred_len/test_stride/features_mode, as
+              explicit fields -- not just the packed "window" string --
+              so metrics/reporting.py can group/filter per dataset x model
+              x forecast-config instead of only by the combined label),
+              "val", "test", "n_train/val/test", "timing", "loss",
+              "pipeline", ["train_history"]
 ```
 
 ---

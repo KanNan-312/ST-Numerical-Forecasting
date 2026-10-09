@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
 
-from housets_bench.data.windowing import make_window_spec, window_label
-from housets_bench.experiments.artifacts import collect_env, make_run_dir, save_json, save_yaml
-from housets_bench.experiments.sweep import run_one_cfg
-from housets_bench.utils.config import deep_update, load_yaml, pop_cli_overrides, resolve_relpaths
+from st_numeric_baselines.data.windowing import make_window_spec, window_label
+from st_numeric_baselines.experiments.artifacts import collect_env, make_run_dir, save_json, save_yaml
+from st_numeric_baselines.experiments.sweep import run_one_cfg
+from st_numeric_baselines.utils.config import deep_update, load_yaml, pop_cli_overrides, resolve_relpaths
 
 
 def parse_args() -> argparse.Namespace:

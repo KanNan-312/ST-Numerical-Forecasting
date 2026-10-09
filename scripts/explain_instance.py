@@ -11,16 +11,14 @@ Usage
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "src"))
+REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
 
 import pandas as pd
 import torch
 
-from housets_bench.explain import explain_features, explain_neighbors
+from st_numeric_baselines.explain import explain_features, explain_neighbors
 
 
 def parse_args() -> argparse.Namespace:
