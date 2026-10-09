@@ -11,9 +11,11 @@ Usage
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 import pandas as pd
 import torch

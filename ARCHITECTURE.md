@@ -26,8 +26,8 @@ data/                         # real datasets (dc_house, seattle_house, chicago_
 runs/<dataset>/<model>__<task>__<window>/   # output directory (auto-created, gitignored)
 ```
 
-Installed as an editable package (`pip install -e .`, see README "Install")
-— no `sys.path` hacks in `scripts/`.
+Not installed as a package: each script in `scripts/` puts the repo root on `sys.path`
+(dependencies come from `requirements.txt`, see README "Install").
 
 ---
 

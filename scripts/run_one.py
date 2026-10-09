@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import json
 from pathlib import Path
 from typing import Any, Dict
 
-REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 from st_numeric_baselines.data.windowing import make_window_spec, window_label
 from st_numeric_baselines.experiments.artifacts import collect_env, make_run_dir, save_json, save_yaml

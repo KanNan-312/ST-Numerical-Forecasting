@@ -13,12 +13,14 @@ and writes eval_metrics.json back into the same run directory.
 from __future__ import annotations
 
 import argparse
+import sys
 import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict
 
-REPO_ROOT = Path(__file__).resolve().parents[1]  # requires: pip install -e . (see README Quick start)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 import torch
 

@@ -21,15 +21,16 @@ The benchmark supports **univariate** and **multivariate** forecasting with stan
 ## Install
 
 ```bash
-pip install -e .                 # core deps (numpy/pandas/torch/sklearn/xgboost/...)
-pip install -e ".[graph]"        # + networkx/libpysal (gc_moe's router, knn-graph builder)
-pip install -e ".[foundation]"   # + transformers/chronos/timesfm (foundation-model wrappers)
-pip install -e ".[traffic-h5]"   # + tables (pandas.read_hdf, for METR-LA's .h5 format)
-pip install -e ".[all]"          # everything above
+pip install -r requirements.txt
 ```
 
-Every script under `scripts/` then runs directly (`python scripts/run_one.py ...`)
-— no `sys.path` hacks, no need to run from any particular directory.
+`torch` is not in `requirements.txt` -- install the build matching your CUDA/CPU setup
+separately (https://pytorch.org/get-started/locally/). The foundation-model wrappers
+additionally need `transformers`, `chronos-forecasting` and `timesfm`; install those
+separately as needed.
+
+No package install is needed: every script under `scripts/` adds the repo root to
+`sys.path`, so it runs directly (`python scripts/run_one.py ...`) from any directory.
 
 ## Project structure
 

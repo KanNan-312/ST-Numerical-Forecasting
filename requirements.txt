@@ -1,0 +1,20 @@
+# Core dependencies. torch is NOT listed -- install it separately for your
+# CUDA/CPU setup (https://pytorch.org/get-started/locally/).
+numpy
+pandas
+pyyaml
+scikit-learn
+tabulate
+tqdm
+xgboost
+
+# Optional: graph-topology features (gc_moe's router) and the libpysal backend
+# of scripts/build_knn_graph.py.
+networkx
+libpysal
+
+# Optional: pandas.read_hdf for METR-LA's .h5 format (data/io.py::load_metr_la).
+tables
+
+# Foundation-model wrappers (models/foundation/) -- install separately as needed:
+#   transformers, chronos-forecasting, timesfm (2.5)
