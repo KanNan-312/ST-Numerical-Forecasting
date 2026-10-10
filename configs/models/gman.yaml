@@ -1,0 +1,13 @@
+model:
+  name: gman
+  hparams:
+    n_heads: 4
+    head_dim: 8
+    n_layers: 2
+    dropout: 0.1
+    use_tod_dow: false   # true for 5-min traffic data (METR-LA / PEMS)
+    epochs: 30
+    lr: 1.0e-3
+    weight_decay: 1.0e-4
+    patience: 7
+    batch_size: 8

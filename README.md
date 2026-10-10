@@ -373,6 +373,12 @@ no coordinates, nothing): `staeformer`, `st_hhol` (above), plus three new additi
   mechanism: learns a **directed**, top-k-sparsified adjacency from two node-embedding
   matrices, then alternates dilated-inception temporal convolution (parallel kernel
   sizes 2/3/6/7) with mix-hop graph propagation over the learned graph and its transpose
+- `astgcn` — attention-based spatial-temporal GCN (guoshnBJTU/ASTGCN-2019-pytorch, AAAI 2019),
+  recent-component port: temporal + spatial attention feeding an attention-modulated Chebyshev GCN;
+  **needs** a real adjacency (`dataset.graph.path`)
+- `gman` — graph multi-attention network (zhengchuanpan/GMAN, AAAI 2020): ST-attention encoder/decoder
+  with transform attention; `requires_graph=False` (learned node embedding replaces the reference's
+  node2vec SE; learned step embedding replaces dow/tod unless `use_tod_dow: true` for traffic data)
 - `testam` — Time-Enhanced Spatio-temporal Attention Model with Mixture of experts
   (Lee & Ko, ICLR 2024): 3 experts (identity/no-graph, a learned-static-adjacency GCN, a
   fully dynamic-attention graph) gated by a shared memory bank with **hard top-1 routing**

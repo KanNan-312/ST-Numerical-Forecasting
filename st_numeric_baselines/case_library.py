@@ -49,6 +49,8 @@ MODEL_CATEGORY: Dict[str, str] = {
     "agcrn": "spatial_temporal",
     "mtgnn": "spatial_temporal",
     "testam": "spatial_temporal",
+    "astgcn": "spatial_temporal",
+    "gman": "spatial_temporal",
     # ensembles / MoE
     "ensemble_st": "ensemble",
     "gc_moe": "ensemble",

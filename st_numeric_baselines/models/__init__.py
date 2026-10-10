@@ -50,6 +50,10 @@ from .gnn.stid import STIDForecaster  # noqa: F401
 from .gnn.agcrn import AGCRNForecaster  # noqa: F401
 from .gnn.mtgnn import MTGNNForecaster  # noqa: F401
 from .gnn.testam import TESTAMForecaster  # noqa: F401
+from .gnn.gman import GMANForecaster  # noqa: F401
+
+# attention-based STGNN needing the dataset adjacency (Chebyshev polynomials)
+from .gnn.astgcn import ASTGCNForecaster  # noqa: F401
 
 # fixed-weight ensemble over a configurable list of this registry's own models
 from .ensemble_st import EnsembleSTForecaster  # noqa: F401

@@ -179,7 +179,7 @@ All public class attributes (e.g. `epochs`, `lr`, `hidden_size`) become hyper-pa
 | ML | `ml/{rf,xgb}.py` | Flatten windows → sklearn/XGBoost fit |
 | Stats / Naive | `stats/ardl.py`, `naive/ar_univariate.py` | statsmodels-free Ridge/PCA ARDL, per-ZIP AR(p) |
 | Foundation | `foundation/{chronos,timesfm}.py` | zero-shot, calibrated, or fine-tuned |
-| GNN | `gnn/gnn_forecaster.py` (shared `GNNForecasterBase` training loop) + one file per model: `gcn_tcn_geo, graph_wavenet, stgcn, stsgcn, stllm_plus, dcrnn, stgformer, d2stgnn, cast, stexplainer, aist, st_hhol, staeformer, stid, agcrn, mtgnn, testam` | Graph exposed as instance state (`self._A_raw`/`self._A_norm`), not a forward-signature argument. A model sets `requires_graph = False` if it never needs one (`staeformer`, `st_hhol`, `stid`, `agcrn`, `mtgnn`, `testam`) — then `dataset.graph.path` can be left unset. |
+| GNN | `gnn/gnn_forecaster.py` (shared `GNNForecasterBase` training loop) + one file per model: `gcn_tcn_geo, graph_wavenet, stgcn, stsgcn, stllm_plus, dcrnn, stgformer, d2stgnn, cast, stexplainer, aist, st_hhol, staeformer, stid, agcrn, mtgnn, testam, astgcn, gman` | Graph exposed as instance state (`self._A_raw`/`self._A_norm`), not a forward-signature argument. A model sets `requires_graph = False` if it never needs one (`staeformer`, `st_hhol`, `stid`, `agcrn`, `mtgnn`, `testam`, `gman`) — then `dataset.graph.path` can be left unset. |
 | Ensembles / MoE | `ensemble_st.py` (fixed equal-weight), `gc_moe.py` (frozen experts + trained graph-conditioned router) | Both delegate to other registered models' own `fit()`/`predict_batch` rather than training one net themselves |
 
 ### Case library, oracle, and explainability (package-root, not a subpackage)

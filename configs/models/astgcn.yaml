@@ -1,0 +1,13 @@
+model:
+  name: astgcn
+  hparams:
+    n_blocks: 2
+    cheb_k: 3
+    nb_chev_filter: 32
+    nb_time_filter: 32
+    time_strides: 1
+    epochs: 30
+    lr: 1.0e-3
+    weight_decay: 1.0e-4
+    patience: 7
+    batch_size: 8
