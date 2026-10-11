@@ -2,35 +2,32 @@
 # set -euo pipefail
 
 MODELS=(
-  # "dlinear"
-  # "patchtst"
-  # "itransformer"
-  # "timemixer"
-  # "timellm"
-  # "gpt4ts"
-  # "chronos2_zero"
+  "dlinear"
+  "patchtst"
+  "itransformer"
+  "timemixer"
+  "timellm"
+  "gpt4ts"
+  "chronos2_zero"
   "timesfm_zero"
-  # "staeformer"
-  # "stid"
-  # "agcrn"
-  # "mtgnn"
-  # "stgcn"
-  # "stsgcn"
-  # "graph_wavenet"
-  # "dcrnn"
-  # "d2stgnn"
-  # "stgformer"
-  # "stllm_plus"
-  # "aist"
-  # "stexplainer"
-  # "cast"
+  "staeformer"
+  "stid"
+  "agcrn"
+  "mtgnn"
+  "stgcn"
+  "stsgcn"
+  "graph_wavenet"
+  "dcrnn"
+  "d2stgnn"
+  "gman"
+  "astgcn"
 )
 
 
 DATASETS=(
-  "chicago_crime"
-  # "seattle_house"
-  # "redfin_metro_house"
+  # "chicago_crime"
+  "pems08"
+  "redfin_metro_house"
 )
 
 for DATASET in "${DATASETS[@]}"; do

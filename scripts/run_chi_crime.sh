@@ -13,7 +13,7 @@ MODELS=(
   "dcrnn"
   "stgcn"
   "graph_wavenet"
-  "acgrn"
+  "agcrn"
   "mtgnn"
   "stid"
   "staeformer"
