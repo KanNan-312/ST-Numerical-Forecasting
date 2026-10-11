@@ -1,6 +1,6 @@
 # NYC-crime (UrbanGPT benchmark, HKUDS/UrbanGPT KDD'2024).
 # Not usable until you've downloaded crime_nyc_2016_1_2021_12_46x47.npz from
-# https://huggingface.co/datasets/bjdwh/ST_data_urbangpt
+# https://huggingface.co/datasets/bjdwh/UrbanGPT_ori_stdata (st_data.zip -> st_data/; NOT ST_data_urbangpt, which only holds instruction JSONs)
 #
 # NO PREDEFINED GRAPH SHIPS WITH THIS DATASET -- same as nyc_taxi.yaml (and
 # the same 46x47-grid note as nyc_bike.yaml applies here too).
@@ -27,7 +27,7 @@ data:
   n_zip: 0
 
 graph:
-  path: null
+  path: data/nyc_crime/graph.npz  # 4-connected 46x47 grid, built by scripts/build_grid_graph.py
 
 split:
   train_ratio: 0.7
@@ -37,4 +37,4 @@ window:
   seq_len: 12
   label_len: 12
   pred_len: 3
-  test_stride: 1
+  test_stride: 25   # 18 test windows (vs 436 at stride 1); coprime to 7 -> all weekdays

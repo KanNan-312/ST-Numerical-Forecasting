@@ -158,7 +158,7 @@ from each original repo's source) — the data pipeline supports both:
 ### Urban datasets (UrbanGPT benchmark: NYC-taxi / NYC-bike / NYC-crime / CHI-taxi)
 
 From HKUDS/UrbanGPT (KDD'2024) — data on HuggingFace at
-[`bjdwh/ST_data_urbangpt`](https://huggingface.co/datasets/bjdwh/ST_data_urbangpt).
+[`bjdwh/UrbanGPT_ori_stdata`](https://huggingface.co/datasets/bjdwh/UrbanGPT_ori_stdata) (`st_data.zip`, 55 MB; the sibling `ST_data_urbangpt` repo holds only instruction-tuning JSONs, not the `.npz` panels).
 **None of these four ship with a predefined graph** — confirmed directly from source:
 UrbanGPT's own spatio-temporal encoder (`ST_Enc`) stores an `adj_mx` constructor argument
 but never actually references it anywhere in its forward pass; the model is pure
