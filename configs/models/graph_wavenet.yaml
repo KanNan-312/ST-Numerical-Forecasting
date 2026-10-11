@@ -11,7 +11,8 @@ model:
     gcn_order: 2
     dropout: 0.1
     adaptive_adj: true
-    adaptive_emb_dim: 8
+    adaptive_emb_dim: 10
+    adaptive_init: svd
     epochs: 30
     lr: 5.0e-4
     weight_decay: 1.0e-4
