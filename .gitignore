@@ -42,3 +42,8 @@ scripts/dev/
 scripts/_scratch/
 
 library/*
+# large UrbanGPT panels (see configs/dataset/*.yaml for download)
+data/nyc_taxi/
+data/nyc_bike/
+data/nyc_crime/
+data/chi_taxi/
