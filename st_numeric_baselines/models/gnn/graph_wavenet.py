@@ -9,6 +9,18 @@ model change is needed here for that — ``st_numeric_baselines.data.io.load_met
 ``load_pems08`` already emit a ``time_of_day`` column; include it via the
 dataset config's ``feature_cols`` and it flows in as an ordinary extra
 channel of ``bundle.x_cols``, matching the original convention exactly.
+Alignment with the reference (``model.py``/``util.py``/``train.py``):
+
+* Self-adaptive adjacency is the paper's dense ``softmax(relu(E1 @ E2))``
+  over all node pairs (it can add edges the predefined graph lacks), seeded
+  by default from the SVD of the forward transition matrix (``aptinit``).
+* Predefined supports are the ``doubletransition`` pair ``D^-1 A`` and
+  ``D^-1 A^T``; with no graph the model runs adaptive-only (``--aptonly``).
+* The reference's ``nconv`` einsum multiplies by ``A^T``; supports are passed
+  pre-transposed so the result is identical.
+* Not copied: the reference's masked-MAE loss / grad-clip 5 / input
+  standardisation of the first channel only -- those follow this repo's
+  shared GNN training loop.
 """
 from __future__ import annotations
 
@@ -22,38 +34,46 @@ import torch.nn.functional as F
 from st_numeric_baselines.graph.torch_adj import spmm_nct
 
 
-class EdgeAdaptiveAdj(nn.Module):
+class AdaptiveAdj(nn.Module):
+    """Self-adaptive adjacency (paper Eq. 5): ``softmax(relu(E1 @ E2), dim=1)``.
 
-    def __init__(self, n_nodes: int, src: torch.Tensor, dst: torch.Tensor, emb_dim: int = 16, eps: float = 1e-8):
+    Dense ``[N, N]`` -- every node pair can be connected, so it can discover
+    dependencies absent from the predefined graph (or stand in for one
+    entirely). ``init_adj`` (the forward transition matrix, as in the
+    reference's default ``aptinit=supports[0]``) seeds ``E1``/``E2`` from its
+    truncated SVD; ``None`` gives the reference's ``--randomadj`` N(0,1) init.
+    """
+
+    def __init__(self, n_nodes: int, emb_dim: int = 10, init_adj: Optional[torch.Tensor] = None):
         super().__init__()
-        self.n_nodes = int(n_nodes)
-        self.eps = float(eps)
-
-        # store edges as buffers
-        self.register_buffer("src", src.long())
-        self.register_buffer("dst", dst.long())
-
-        self.emb1 = nn.Parameter(torch.randn(self.n_nodes, emb_dim) * 0.1)
-        self.emb2 = nn.Parameter(torch.randn(self.n_nodes, emb_dim) * 0.1)
+        k = int(min(emb_dim, n_nodes))
+        if init_adj is None:
+            e1, e2 = torch.randn(n_nodes, k), torch.randn(k, n_nodes)
+        else:
+            A = init_adj.to_dense().float() if init_adj.is_sparse else init_adj.float()
+            if n_nodes <= 2048:
+                U, S, Vh = torch.linalg.svd(A)
+                U, S, V = U[:, :k], S[:k], Vh[:k].t()
+            else:
+                U, S, V = torch.svd_lowrank(A, q=k)
+            sq = S.sqrt()
+            e1, e2 = U * sq, (V * sq).t()
+        self.nodevec1 = nn.Parameter(e1.contiguous())
+        self.nodevec2 = nn.Parameter(e2.contiguous())
 
     def forward(self) -> torch.Tensor:
-        src = self.src
-        dst = self.dst
-        # score per edge
-        score = (self.emb1[src] * self.emb2[dst]).sum(dim=-1)  # [E]
-        w = torch.sigmoid(score)  # [E] in (0,1)
+        return F.softmax(F.relu(self.nodevec1 @ self.nodevec2), dim=1)
 
-        # row normalization by src
-        row_sum = torch.zeros(self.n_nodes, device=w.device, dtype=w.dtype)
-        row_sum.index_add_(0, src, w)
-        w_norm = w / (row_sum[src] + self.eps)
 
-        idx = torch.stack([src, dst], dim=0)
-        A = torch.sparse_coo_tensor(idx, w_norm, size=(self.n_nodes, self.n_nodes)).coalesce()
-        return A
+def _apply_support(A: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    """``A @ x`` along the node axis of ``x`` [B,C,N,T] (sparse or dense ``A``)."""
+    if A.is_sparse:
+        return spmm_nct(A, x)
+    return torch.einsum("vw,ncwl->ncvl", A, x)
 
 
 class SparseGraphConv(nn.Module):
+    """Mix-hop graph conv: ``[x, A x, A^2 x, ...]`` over all supports -> 1x1 conv."""
 
     def __init__(self, c_in: int, c_out: int, *, n_supports: int, order: int = 2, dropout: float = 0.0):
         super().__init__()
@@ -69,13 +89,12 @@ class SparseGraphConv(nn.Module):
         # x: [B,C,N,T]
         out = [x]
         for A in supports:
-            x1 = spmm_nct(A, x)
+            x1 = _apply_support(A, x)
             out.append(x1)
             for _ in range(2, self.order + 1):
-                x1 = spmm_nct(A, x1)
+                x1 = _apply_support(A, x1)
                 out.append(x1)
-        h = torch.cat(out, dim=1)
-        h = self.mlp(h)
+        h = self.mlp(torch.cat(out, dim=1))
         if self.dropout > 0:
             h = F.dropout(h, p=self.dropout, training=self.training)
         return h
@@ -98,8 +117,9 @@ class GraphWaveNet(nn.Module):
         gcn_order: int = 2,
         dropout: float = 0.1,
         adaptive_adj: bool = True,
-        adaptive_emb_dim: int = 16,
-        base_edge_index: Optional[torch.Tensor] = None,  # [2,E] on CPU ok; will be moved
+        adaptive_emb_dim: int = 10,
+        supports: Optional[Sequence[torch.Tensor]] = None,
+        adaptive_init: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.input_dim = int(input_dim)
@@ -121,19 +141,23 @@ class GraphWaveNet(nn.Module):
 
         self.start_conv = nn.Conv2d(self.input_dim, self.residual_channels, kernel_size=(1, 1))
 
-        # edge-adaptive adjacency over base sparse graph
+        # Predefined supports, each already in "A @ x" orientation (the
+        # reference's einsum 'ncvl,vw->ncwl' applies A^T, so the forecaster
+        # hands over the transposes). Kept as a plain list, not buffers: sparse
+        # tensors don't survive state_dict round-trips; moved lazily in forward().
+        self.supports: List[torch.Tensor] = list(supports) if supports else []
+        self._supports_cache: dict = {}
+        if not self.supports and not self.adaptive_adj:
+            raise ValueError("graph_wavenet needs predefined supports or adaptive_adj=True (or both)")
+
+        # Dense self-adaptive adjacency (paper Eq. 5); works with or without supports.
         self.adj_learner = None
         if self.adaptive_adj:
-            if base_edge_index is None:
-                raise ValueError("adaptive_adj=True requires base_edge_index [2,E]")
-            src = base_edge_index[0].long()
-            dst = base_edge_index[1].long()
-            self.adj_learner = EdgeAdaptiveAdj(self.n_nodes, src=src, dst=dst, emb_dim=int(adaptive_emb_dim))
+            self.adj_learner = AdaptiveAdj(self.n_nodes, int(adaptive_emb_dim), init_adj=adaptive_init)
 
         # temporal + graph conv stacks
         self.filter_convs = nn.ModuleList()
         self.gate_convs = nn.ModuleList()
-        self.residual_convs = nn.ModuleList()
         self.skip_convs = nn.ModuleList()
         self.norms = nn.ModuleList()
         self.gconvs = nn.ModuleList()
@@ -160,11 +184,10 @@ class GraphWaveNet(nn.Module):
                     )
                 )
 
-                self.residual_convs.append(nn.Conv2d(self.dilation_channels, self.residual_channels, kernel_size=(1, 1)))
                 self.skip_convs.append(nn.Conv2d(self.dilation_channels, self.skip_channels, kernel_size=(1, 1)))
 
                 # graph conv expects supports list length: base + (adaptive if enabled)
-                n_supports = 1 + (1 if self.adaptive_adj else 0)
+                n_supports = len(self.supports) + (1 if self.adaptive_adj else 0)
                 self.gconvs.append(
                     SparseGraphConv(
                         self.dilation_channels,
@@ -180,19 +203,23 @@ class GraphWaveNet(nn.Module):
         self.end_conv_1 = nn.Conv2d(self.skip_channels, self.end_channels, kernel_size=(1, 1))
         self.end_conv_2 = nn.Conv2d(self.end_channels, self.pred_len, kernel_size=(1, 1))
 
-    def forward(self, x: torch.Tensor, supports: Sequence[torch.Tensor]) -> torch.Tensor:
+    def _supports_on(self, device: torch.device) -> List[torch.Tensor]:
+        key = str(device)
+        if key not in self._supports_cache:
+            self._supports_cache[key] = [A.to(device) for A in self.supports]
+        return self._supports_cache[key]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: [B,L,N,F] -> [B,F,N,L]
         x = x.permute(0, 3, 2, 1).contiguous()
         x = self.start_conv(x)
         skip = 0.0
 
-        # prepare supports on correct device
-        base_supports = list(supports)
-
-        # ensure adaptive adjacency uses correct device buffers
+        # Adaptive adjacency computed once per forward, like the reference
+        # (transposed into "A @ x" orientation to match its einsum).
+        cur_supports = list(self._supports_on(x.device))
         if self.adj_learner is not None:
-            # move stored edges to device if needed 
-            pass
+            cur_supports.append(self.adj_learner().t())
 
         for layer in range(len(self.filter_convs)):
             residual = x
@@ -215,18 +242,11 @@ class GraphWaveNet(nn.Module):
             s = self.skip_convs[layer](x_t)
             skip = skip + s
 
-            # supports: base + optional adaptive
-            if self.adj_learner is not None:
-                A_adapt = self.adj_learner()
-                cur_supports = base_supports + [A_adapt]
-            else:
-                cur_supports = base_supports
-
             # graph conv
             x_gc = self.gconvs[layer](x_t, cur_supports)
 
             # residual connection
-            x = self.residual_convs[layer](x_gc) + residual
+            x = x_gc + residual   # reference: gcn output is already residual_channels wide, no extra 1x1
 
             # norm
             x = self.norms[layer](x)

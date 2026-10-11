@@ -30,7 +30,7 @@ from tqdm import tqdm
 from st_numeric_baselines.bundles.datatypes import ProcBundle
 from st_numeric_baselines.data.graph_dataset import GraphWindowDataset, graph_collate
 from st_numeric_baselines.graph.loader import load_graph
-from st_numeric_baselines.graph.torch_adj import normalize_adj_sym, sparse_adj
+from st_numeric_baselines.graph.torch_adj import normalize_adj_random_walk, normalize_adj_sym, sparse_adj
 from st_numeric_baselines.models.base import BaseForecaster
 from st_numeric_baselines.models.registry import register
 
@@ -530,6 +530,9 @@ class GraphWaveNetForecaster(GNNForecasterBase):
     """Graph WaveNet forecaster with learnable adaptive adjacency."""
 
     name: str = "graph_wavenet"
+    # Like the reference (--aptonly), the predefined graph is optional: with no
+    # graph.path the model runs on its self-adaptive adjacency alone.
+    requires_graph: bool = False
     residual_channels: int = 32
     dilation_channels: int = 32
     skip_channels: int = 64
@@ -540,17 +543,25 @@ class GraphWaveNetForecaster(GNNForecasterBase):
     gcn_order: int = 2
     dropout: float = 0.1
     adaptive_adj: bool = True
-    adaptive_emb_dim: int = 8
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._base_edge_index: Optional[torch.Tensor] = None
+    adaptive_emb_dim: int = 10
+    adaptive_init: str = "svd"      # "svd" (reference default, needs a graph) | "random" (--randomadj)
+    use_predefined: bool = True     # False -> adaptive-only even if a graph is configured
 
     def _build_net(self, bundle, n_nodes, *, A_norm, device):
-        # Convert sparse A_norm to COO edge_index for the adaptive adj module
-        A_dense = A_norm.to(device).to_dense()
-        r, c = A_dense.nonzero(as_tuple=True)
-        self._base_edge_index = torch.stack([r.cpu(), c.cpu()], dim=0)
+        supports, init_adj = [], None
+        if self._A_raw is not None and bool(self.use_predefined):
+            # reference "doubletransition": D^-1 A and D^-1 A^T. Its nconv einsum
+            # applies A^T, so hand over transposes for the A @ x convention.
+            P_f = normalize_adj_random_walk(self._A_raw)
+            P_b = normalize_adj_random_walk(self._A_raw.t().coalesce())
+            supports = [P_f.t().coalesce(), P_b.t().coalesce()]
+            if str(self.adaptive_adj).lower() != "false" and self.adaptive_init == "svd":
+                init_adj = P_f
+        elif not bool(self.adaptive_adj):
+            raise ValueError(
+                "graph_wavenet with adaptive_adj=False needs a predefined graph "
+                "(dataset.graph.path) and use_predefined=True"
+            )
 
         return GraphWaveNet(
             input_dim=len(bundle.x_cols),
@@ -567,12 +578,12 @@ class GraphWaveNetForecaster(GNNForecasterBase):
             dropout=float(self.dropout),
             adaptive_adj=bool(self.adaptive_adj),
             adaptive_emb_dim=int(self.adaptive_emb_dim),
-            base_edge_index=self._base_edge_index,
+            supports=supports,
+            adaptive_init=init_adj,
         )
 
     def _graph_forward(self, net, x):
-        # GraphWaveNet expects a list of support matrices
-        return net(x, [self._A_norm.to(x.device)])
+        return net(x)
 
 
 @register("stgcn")

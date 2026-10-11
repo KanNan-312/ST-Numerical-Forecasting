@@ -318,7 +318,10 @@ The current `configs/models/` directory includes the following model configs.
 ### Graph neural networks
 
 - `gcn_tcn`
-- `graph_wavenet`
+- `graph_wavenet` — Graph WaveNet (nnzhan/Graph-WaveNet): dense self-adaptive adjacency
+  `softmax(relu(E1E2))` (SVD-initialised from the forward transition matrix) plus the
+  forward/backward `doubletransition` supports; the graph is optional (adaptive-only if
+  `dataset.graph.path` is unset or `use_predefined: false`)
 - `stgcn`
 - `stsgcn`
 - `stllm_plus`
@@ -416,7 +419,7 @@ no coordinates, nothing): `staeformer`, `st_hhol` (above), plus three new additi
 
 ## GNN models: dataloader structure
 
-GNN models (GCN-TCN, STGCN, GraphWaveNet, STSGCN, ST-LLM+) need a node adjacency graph.
+GNN models (GCN-TCN, STGCN, STSGCN, ST-LLM+; GraphWaveNet optionally) need a node adjacency graph.
 The benchmark never builds this itself (no implicit lat/lon handling) — it only loads a
 precomputed graph from a `.npz` file, pointed to by `graph.path` in the dataset config
 (dataset-level, not per-model, since every GNN model on a dataset shares the same graph):
