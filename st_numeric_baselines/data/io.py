@@ -257,6 +257,67 @@ def load_aligned(
     return align_to_tensor(df, schema, impute=impute)
 
 
+def _load_traffic_speed_h5(
+    path: Union[str, Path],
+    *,
+    dataset_label: str,
+    target_col: str,
+    feature_cols: Optional[Sequence[str]],
+    impute: bool,
+    zero_as_missing: bool,
+) -> AlignedData:
+    """Shared loader for DCRNN/Graph-WaveNet-format traffic-speed ``.h5``
+    files (pandas DataFrame, DatetimeIndex rows x sensor-id columns — same
+    layout for both METR-LA and PEMS-BAY, confirmed from liyaguang/DCRNN's
+    own data loader and from inspecting each file's raw HDF5 structure
+    directly). ``zero_as_missing``: METR-LA encodes missing sensor readings
+    as a literal 0 (confirmed: ~8% of METR-LA's raw values are exactly 0.0,
+    vs ~0.003% for PEMS-BAY, which instead already stores missing readings
+    as real NaNs) — pass ``True`` only for datasets confirmed to use that
+    convention; forcing it on PEMS-BAY would wrongly blank out genuine
+    low-speed readings near zero.
+
+    Requires ``pandas``' HDF5 support (the ``tables`` package).
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(str(path))
+
+    df = pd.read_hdf(path).sort_index()
+    sensor_ids = [str(c) for c in df.columns]
+    dates = [pd.Timestamp(d) for d in df.index]
+    n, t = len(sensor_ids), len(dates)
+
+    speed = df.to_numpy(dtype=np.float32).T[:, :, None]  # [N, T, 1]
+    if zero_as_missing:
+        speed = np.where(speed == 0.0, np.nan, speed)
+
+    tod = np.array([(d - d.normalize()) / pd.Timedelta(days=1) for d in dates], dtype=np.float32)
+    tod_tiled = np.tile(tod[None, :, None], (n, 1, 1))  # [N, T, 1]
+    values = np.concatenate([speed, tod_tiled], axis=-1)  # [N, T, 2]
+    available_cols = [target_col, "time_of_day"]
+
+    if feature_cols is not None:
+        missing = [c for c in feature_cols if c not in available_cols]
+        if missing:
+            raise ValueError(f"feature_cols not available for {dataset_label}: {missing} (available: {available_cols})")
+        keep = [target_col] + [c for c in feature_cols if c != target_col]
+    else:
+        keep = available_cols
+    values = values[:, :, [available_cols.index(c) for c in keep]]
+
+    if impute:
+        values = three_stage_impute(values)
+
+    tm, time_mark_cols = _build_time_marks(dates)
+    schema = FeatureSchema(
+        id_col="sensor_id", time_col="date", target_col=target_col,
+        drop_cols=(), time_mark_cols=time_mark_cols, continuous_cols=tuple(keep),
+    )
+    return AlignedData(zipcodes=sensor_ids, dates=dates, values=values.astype(np.float32, copy=False),
+                        time_marks=tm, schema=schema)
+
+
 def load_metr_la(
     path: Union[str, Path],
     *,
@@ -280,43 +341,33 @@ def load_metr_la(
 
     Requires ``pandas``' HDF5 support (the ``tables`` package).
     """
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(str(path))
-
-    df = pd.read_hdf(path).sort_index()
-    sensor_ids = [str(c) for c in df.columns]
-    dates = [pd.Timestamp(d) for d in df.index]
-    n, t = len(sensor_ids), len(dates)
-
-    speed = df.to_numpy(dtype=np.float32).T[:, :, None]  # [N, T, 1]
-    # METR-LA encodes missing sensor readings as 0 -- not a real zero speed.
-    speed = np.where(speed == 0.0, np.nan, speed)
-
-    tod = np.array([(d - d.normalize()) / pd.Timedelta(days=1) for d in dates], dtype=np.float32)
-    tod_tiled = np.tile(tod[None, :, None], (n, 1, 1))  # [N, T, 1]
-    values = np.concatenate([speed, tod_tiled], axis=-1)  # [N, T, 2]
-    available_cols = [target_col, "time_of_day"]
-
-    if feature_cols is not None:
-        missing = [c for c in feature_cols if c not in available_cols]
-        if missing:
-            raise ValueError(f"feature_cols not available for METR-LA: {missing} (available: {available_cols})")
-        keep = [target_col] + [c for c in feature_cols if c != target_col]
-    else:
-        keep = available_cols
-    values = values[:, :, [available_cols.index(c) for c in keep]]
-
-    if impute:
-        values = three_stage_impute(values)
-
-    tm, time_mark_cols = _build_time_marks(dates)
-    schema = FeatureSchema(
-        id_col="sensor_id", time_col="date", target_col=target_col,
-        drop_cols=(), time_mark_cols=time_mark_cols, continuous_cols=tuple(keep),
+    return _load_traffic_speed_h5(
+        path, dataset_label="METR-LA", target_col=target_col, feature_cols=feature_cols,
+        impute=impute, zero_as_missing=True,
     )
-    return AlignedData(zipcodes=sensor_ids, dates=dates, values=values.astype(np.float32, copy=False),
-                        time_marks=tm, schema=schema)
+
+
+def load_pems_bay(
+    path: Union[str, Path],
+    *,
+    target_col: str = "speed",
+    feature_cols: Optional[Sequence[str]] = None,
+    impute: bool = True,
+) -> AlignedData:
+    """Load PEMS-BAY's standard ``.h5`` format — same DCRNN/Graph-WaveNet
+    layout as :func:`load_metr_la` (pandas DataFrame, DatetimeIndex rows x
+    sensor-id columns, 5-min speed readings), but unlike METR-LA its raw
+    values are *not* zero-filled for missing readings (confirmed by direct
+    inspection: ~0.003% exact zeros vs METR-LA's ~8%, plus already-present
+    real NaNs) — so zeros are kept as genuine low-speed readings here, not
+    reinterpreted as missing.
+
+    Requires ``pandas``' HDF5 support (the ``tables`` package).
+    """
+    return _load_traffic_speed_h5(
+        path, dataset_label="PEMS-BAY", target_col=target_col, feature_cols=feature_cols,
+        impute=impute, zero_as_missing=False,
+    )
 
 
 def load_pems08(
@@ -629,6 +680,13 @@ def load_aligned_from_cfg(cfg: Dict[str, Any]) -> AlignedData:
             feature_cols=data_cfg.get("feature_cols"),
             impute=bool(data_cfg.get("impute", True)),
         )
+    elif loader == "pems_bay":
+        aligned = load_pems_bay(
+            data_cfg.get("path"),
+            target_col=str(data_cfg.get("target_col", "speed")),
+            feature_cols=data_cfg.get("feature_cols"),
+            impute=bool(data_cfg.get("impute", True)),
+        )
     elif loader == "pems08":
         aligned = load_pems08(
             data_cfg.get("path"),
@@ -656,7 +714,7 @@ def load_aligned_from_cfg(cfg: Dict[str, Any]) -> AlignedData:
         )
     else:
         raise ValueError(
-            f"Unknown data.loader={loader!r} (expected one of: csv, metr_la, pems08, "
+            f"Unknown data.loader={loader!r} (expected one of: csv, metr_la, pems_bay, pems08, "
             "nyc_taxi, chi_taxi, nyc_bike, nyc_crime)"
         )
 

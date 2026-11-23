@@ -2,7 +2,7 @@
 
 Usage
 -----
-    python scripts/eval_one.py --run-dir runs/dlinear__multivariate__w6_h3
+    python scripts/eval_one.py --run-dir runs/dc_house/w6_h3/dlinear__multivariate
     python scripts/eval_one.py --run-dir runs/... --splits test --device cuda
     python scripts/eval_one.py --run-dir runs/... --splits val test --max-eval-batches 50
 

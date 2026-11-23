@@ -24,6 +24,13 @@ graph:
   path: null
 
 split:
+  # Calendar-indexed monthly panel, but no local copy of this data to compute
+  # an exact val_start_date against -- left on the legacy path (mode: ratio +
+  # test_start_date alone still gives an exact test cutoff with a ratio-split
+  # train/val before it). Switch to mode: date with an explicit
+  # val_start_date once you have the data (see dc_house.yaml/chicago_crime.yaml
+  # for the fully-explicit version of this pattern).
+  mode: ratio
   train_ratio: 0.7
   val_ratio: 0.15
   test_start_date: "2025-01-31"  # e.g. "2022-01-01" — overrides ratio-based test-set boundary

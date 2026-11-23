@@ -1,10 +1,8 @@
-# METR-LA (LA County loop-detector traffic speed, 5-min intervals).
-# Not usable until you've downloaded metr-la.h5 (DCRNN/Graph WaveNet's own
-# distribution) and built graph.npz via scripts/build_traffic_graph.py:
-#   python scripts/build_traffic_graph.py \
-#     --distances-csv data/metr_la/distances_la_2012.csv \
-#     --sensor-ids data/metr_la/sensor_ids.txt \
-#     --out data/metr_la/graph.npz
+# METR-LA (LA County loop-detector traffic speed, 5-min intervals,
+# 2012-03-01 -> 2012-06-27, 207 sensors).
+#
+# Get the data + graph with:
+#   python scripts/download_traffic_dataset.py --dataset metr_la
 dataset:
   name: metr_la
 
@@ -22,6 +20,7 @@ graph:
 
 split:
   # 70/10/20 chronological, matching DCRNN/Graph WaveNet/AGCRN's own convention
+  mode: ratio
   train_ratio: 0.7
   val_ratio: 0.1
 

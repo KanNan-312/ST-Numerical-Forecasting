@@ -22,9 +22,13 @@ graph:
   path: data/chicago_crime/graph.npz
 
 split:
-  train_ratio: 0.7
-  val_ratio: 0.15
-  test_start_date: "2025-01-31"  # e.g. "2022-01-01" — overrides ratio-based test-set boundary
+  # Calendar-indexed monthly panel -- explicit date cutoffs, equivalent to
+  # the old 70/15 ratio split over the data as it stood when this was
+  # written (126 months, 2016-01 -> 2026-06), but now fixed regardless of
+  # how many more months get appended.
+  mode: date
+  val_start_date: "2023-06-30"
+  test_start_date: "2025-01-31"
 
 window:
   seq_len: 12

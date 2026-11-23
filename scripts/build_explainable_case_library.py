@@ -21,19 +21,18 @@ explanations (which node/feature/time mattered):
 Usage
 -----
     python scripts/build_explainable_case_library.py \
-      --runs-root runs/dc_house \
+      --dataset dc_house --window w12_h12 \
       --univariate-model timesfm_zero \
       --multivariate-model chronos2_zero \
       --stexplainer-model stexplainer \
       --explain-n-instances 20 \
-      --out-dir runs/dc_house/explainable_case_library
+      --out-dir runs/dc_house/w12_h12/explainable_case_library
 """
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -41,13 +40,12 @@ sys.path.insert(0, str(REPO_ROOT))
 import torch
 
 from st_numeric_baselines.experiments.explainable_library import build_explainable_case_library
-from st_numeric_baselines.utils.config import load_yaml
+from st_numeric_baselines.experiments.run_discovery import add_runs_root_args, find_one_run, resolve_runs_root
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--runs-root", type=str, required=True,
-                   help="directory containing one subdirectory per run (config.yaml + checkpoint.pt)")
+    add_runs_root_args(p, default_out_root=str(REPO_ROOT / "runs"))
     p.add_argument("--univariate-model", type=str, default="timesfm_zero", help="e.g. patchtst, timesfm_zero")
     p.add_argument("--multivariate-model", type=str, default="chronos2_zero", help="e.g. chronos2_zero, itransformer")
     p.add_argument("--stexplainer-model", type=str, default="stexplainer")
@@ -68,35 +66,15 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _find_run(runs_root: Path, model_name: str) -> Path:
-    candidates = [
-        child for child in sorted(runs_root.iterdir())
-        if child.is_dir() and (child / "config.yaml").exists()
-    ]
-    matches = []
-    for run_dir in candidates:
-        cfg = load_yaml(run_dir / "config.yaml")
-        if str((cfg.get("model", {}) or {}).get("name", "")) == model_name:
-            matches.append(run_dir)
-    if not matches:
-        raise SystemExit(f"No run found under {runs_root} for model {model_name!r}")
-    if len(matches) > 1:
-        raise SystemExit(
-            f"Multiple runs found under {runs_root} for model {model_name!r}: {matches} — "
-            "point --runs-root at a directory with exactly one run per model, or rename the extras"
-        )
-    return matches[0]
-
-
 def main() -> None:
     args = parse_args()
-    runs_root = Path(args.runs_root).resolve()
+    runs_root = resolve_runs_root(args)
     if not runs_root.is_dir():
-        raise SystemExit(f"--runs-root not found or not a directory: {runs_root}")
+        raise SystemExit(f"runs-root not found or not a directory: {runs_root}")
 
-    univariate_run = _find_run(runs_root, args.univariate_model)
-    multivariate_run = _find_run(runs_root, args.multivariate_model)
-    stexplainer_run = _find_run(runs_root, args.stexplainer_model)
+    univariate_run = find_one_run(runs_root, args.univariate_model)
+    multivariate_run = find_one_run(runs_root, args.multivariate_model)
+    stexplainer_run = find_one_run(runs_root, args.stexplainer_model)
     print("Runs selected:")
     print(f"  univariate:   {univariate_run}")
     print(f"  multivariate: {multivariate_run}")

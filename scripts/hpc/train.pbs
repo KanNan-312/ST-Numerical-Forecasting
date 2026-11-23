@@ -1,0 +1,113 @@
+#!/bin/bash
+# PBS job body: copy repo+data to scratch, train, mirror progress back live,
+# copy the result back, free scratch. Not meant to be run directly -- submit
+# it via scripts/hpc/submit_train.sh, which fills in the resource request
+# and the -v variables this script reads (REPO_DIR, DATASET, MODEL, TASK,
+# RUN_ARGS, SCRATCH_BASE).
+#
+# Default resource request (overridden per-submission by submit_train.sh's
+# qsub -l flags, so editing these only changes the fallback if you ever
+# qsub this file directly):
+#PBS -N stnf_train
+#PBS -l select=1:ncpus=4:mem=32gb:ngpus=1
+#PBS -l walltime=04:00:00
+#PBS -j oe
+#PBS -k oe
+
+set -euo pipefail
+
+: "${REPO_DIR:?submit via scripts/hpc/submit_train.sh, not qsub directly}"
+: "${DATASET:?submit via scripts/hpc/submit_train.sh, not qsub directly}"
+: "${MODEL:?submit via scripts/hpc/submit_train.sh, not qsub directly}"
+: "${TASK:=multivariate}"
+: "${RUN_ARGS:=}"
+: "${SCRATCH_BASE:=/scratch/${USER:-$(id -un)}}"
+: "${PBS_JOBID:=$$}"   # fallback for local testing outside PBS
+
+JOB_SCRATCH="${SCRATCH_BASE%/}/stnf_${PBS_JOBID}"
+SCRATCH_REPO="$JOB_SCRATCH/repo"
+MIRROR_INTERVAL_SEC=60
+
+echo "[setup] host=$(hostname)  job=$PBS_JOBID  scratch=$JOB_SCRATCH"
+mkdir -p "$JOB_SCRATCH" "$REPO_DIR/logs" "$REPO_DIR/runs"
+
+cleanup() {
+  local status=$?
+  echo "[cleanup] removing scratch $JOB_SCRATCH (exit=$status)"
+  rm -rf "$JOB_SCRATCH"
+  # NOTE: this trap runs on normal exit AND on most errors (set -e), but will
+  # NOT run if PBS kills the job outright for exceeding --walltime (SIGKILL
+  # isn't trappable) -- size --walltime with margin, and see the "orphaned
+  # scratch" note in submit_train.sh's --help / the README HPC section for
+  # how to find and clear those manually if it ever happens.
+  exit "$status"
+}
+trap cleanup EXIT
+
+# ---- 1. copy repo (minus runs/ and every dataset but the one we need) ----
+echo "[copy-in] repo -> $SCRATCH_REPO (excluding runs/, data/, .git/)"
+mkdir -p "$SCRATCH_REPO"
+rsync -a \
+  --exclude 'runs/' \
+  --exclude 'data/' \
+  --exclude '.git/' \
+  --exclude '__pycache__/' \
+  --exclude '*.pyc' \
+  --exclude 'logs/' \
+  "$REPO_DIR"/ "$SCRATCH_REPO"/
+
+echo "[copy-in] data/$DATASET -> $SCRATCH_REPO/data/$DATASET"
+mkdir -p "$SCRATCH_REPO/data/$DATASET"
+rsync -a "$REPO_DIR/data/$DATASET"/ "$SCRATCH_REPO/data/$DATASET"/
+mkdir -p "$SCRATCH_REPO/runs"
+
+# ---- 2. environment ----
+# shellcheck source=/dev/null
+source "$REPO_DIR/scripts/hpc/hpc.env"
+setup_environment
+
+cd "$SCRATCH_REPO"
+mkdir -p logs
+LOG_FILE="logs/${PBS_JOBID}.log"
+HOME_LOG="$REPO_DIR/logs/${PBS_JOBID}.log"
+
+# ---- 3. mirror scratch runs/ + the live log back to the home-visible repo
+#         every MIRROR_INTERVAL_SEC while training runs, so progress can be
+#         watched from the home filesystem without waiting for the job to
+#         finish (see submit_train.sh's --help for what to actually watch) ----
+mirror_back() {
+  rsync -a "$SCRATCH_REPO/runs/" "$REPO_DIR/runs/" 2>/dev/null || true
+  cp "$LOG_FILE" "$HOME_LOG" 2>/dev/null || true
+}
+mirror_loop() {
+  while true; do
+    sleep "$MIRROR_INTERVAL_SEC"
+    mirror_back
+  done
+}
+mirror_loop &
+MIRROR_PID=$!
+stop_mirror() { kill "$MIRROR_PID" 2>/dev/null || true; }
+
+# ---- 4. run ----
+echo "[run] python scripts/run_one.py --dataset $DATASET --model $MODEL --task $TASK --device cuda $RUN_ARGS"
+set +e
+python scripts/run_one.py \
+  --dataset "$DATASET" \
+  --model "$MODEL" \
+  --task "$TASK" \
+  --device cuda \
+  --out-root "$SCRATCH_REPO/runs" \
+  $RUN_ARGS \
+  > >(tee "$LOG_FILE") 2>&1
+RUN_STATUS=$?
+set -e
+
+stop_mirror
+
+# ---- 5. copy back the final result ----
+echo "[copy-out] runs/$DATASET -> $REPO_DIR/runs/$DATASET  (status=$RUN_STATUS)"
+mirror_back
+echo "[done] exit=$RUN_STATUS"
+exit "$RUN_STATUS"
+# cleanup trap (on EXIT) removes $JOB_SCRATCH after this

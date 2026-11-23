@@ -11,7 +11,7 @@ configs/                      # YAML config fragments
   models/                     # one file per model  (model.name, model.hparams)
 scripts/                      # CLI entry points -- run_one.py is the main one
 st_numeric_baselines/
-  data/                       # loading (csv + metr_la/pems08/nyc_*/chi_* loaders), schema,
+  data/                       # loading (csv + metr_la/pems_bay/pems08/nyc_*/chi_* loaders), schema,
                                #  imputation, split, windowing, dataset/graph_dataset
   graph/                      # graph.npz loading, sparse-adjacency utils
   bundles/                    # RawBundle / ProcBundle dataclasses + builder
@@ -19,11 +19,16 @@ st_numeric_baselines/
   models/                     # the full registry (base, registry, hparams) --
                                #  naive/, stats/, ml/, dl/, gnn/, foundation/, ensemble_st.py, gc_moe.py
   metrics/                    # evaluator, loss helpers, reporting (per dataset x model x forecast-config)
-  experiments/                # sweep.py (run_one_cfg), run_loader.py, artifacts.py, explainable_library.py
+  experiments/                # sweep.py (run_one_cfg), run_loader.py, artifacts.py,
+                               #  explainable_library.py, run_discovery.py (shared --dataset/--window
+                               #  run-folder resolution for the case-library/oracle/explain scripts)
   case_library.py, oracle_selection.py, explain.py, shap_occlusion.py
 archive/                      # retired pre-existing files, kept for reference
 data/                         # real datasets (dc_house, seattle_house, chicago_crime)
-runs/<dataset>/<model>__<task>__<window>/   # output directory (auto-created, gitignored)
+runs/<dataset>/<window>/<model>__<task>/   # output directory (auto-created, gitignored) --
+                                            #  <window> is its own directory level precisely so a
+                                            #  dataset's run folder is never an ambiguous mix of
+                                            #  several window configs (e.g. w12_h12 vs w6_h6)
 ```
 
 Not installed as a package: each script in `scripts/` puts the repo root on `sys.path`
@@ -36,20 +41,25 @@ Not installed as a package: each script in `scripts/` puts the repo root on `sys
 ```
 run_one.py
   parse_args()          # --dataset, --task, --model, --device,
-                         # --seq-len/--label-len/--pred-len/--test-stride/--train-ratio/--val-ratio/--test-cutoff-date, --set …
+                         # --seq-len/--label-len/--pred-len/--test-stride/--train-ratio/--val-ratio/
+                         # --split-mode/--val-start-date/--test-cutoff-date, --set …
   load + deep_update    # merge default.yaml → dataset → task → model configs
   apply CLI overrides   # only for flags explicitly passed — YAML config is the source of truth otherwise
   run_one_cfg(cfg)      # ← all real work happens here  (experiments/sweep.py)
-  make_run_dir()        # runs/<dataset>/<model>__<task>__<window>/  (<window> derived from effective seq_len/pred_len)
+  make_run_dir()        # runs/<dataset>/<window>/<model>__<task>/  (<window> derived from effective
+                         # seq_len/pred_len, nested as its own directory level)
   save_yaml / save_json # config.yaml, metrics.json, env.json
   print JSON result
 ```
 
 `--set key=value` can override any nested config key at the CLI (e.g. `--set graph.path=data/g.npz`).
 There is no fixed window-preset file anymore: `window.seq_len`/`label_len`/`pred_len`/`test_stride`
-and `split.train_ratio`/`val_ratio`/`test_start_date` live in `configs/default.yaml` (or a
-per-dataset override in `configs/dataset/<name>.yaml`), and the CLI flags above only override
-them when explicitly passed.
+and `split.mode`/`train_ratio`/`val_ratio`/`val_start_date`/`test_start_date` live in
+`configs/default.yaml` (or a per-dataset override in `configs/dataset/<name>.yaml`), and the CLI
+flags above only override them when explicitly passed. `split.mode` picks the split protocol:
+`"ratio"` (default, train_ratio/val_ratio -- dense numeric panels like PEMS/METR-LA) or `"date"`
+(exact val_start_date/test_start_date cutoffs, no ratio involved -- calendar-indexed CSV panels
+like dc_house/chicago_crime) — see `st_numeric_baselines/data/split.py::make_split`.
 
 ---
 
@@ -92,12 +102,19 @@ lat/lon or builds a graph itself — GNN models load a precomputed graph.npz ins
 ### Step 2 – Split
 
 ```
-make_split(n_time, dates, train_ratio=0.7, val_ratio=0.1, test_start_date=None)
-  test_start_date=None      → make_ratio_split(): TimeSplit(train=(0, t1), val=(t1, t2), test=(t2, T))
-  test_start_date="2022-01-01" → test starts at the first date >= cutoff; train/val split
-                                   the remaining pre-cutoff span by train_ratio/val_ratio
+make_split(n_time, dates, mode="ratio", train_ratio=0.7, val_ratio=0.1,
+           val_start_date=None, test_start_date=None)
+  mode="ratio", test_start_date=None        → make_ratio_split(): TimeSplit(train=(0,t1), val=(t1,t2), test=(t2,T))
+  mode="ratio", test_start_date="2023-01-01" → legacy: test starts at the first date >= cutoff;
+                                                 train/val split the remaining pre-cutoff span by
+                                                 train_ratio/val_ratio
+  mode="date"  → make_exact_date_split(): requires val_start_date + test_start_date, both exact
+                 calendar cutoffs; train_ratio/val_ratio ignored entirely
 ```
-Boundaries are integer time-step indices into the `dates` axis.
+Boundaries are integer time-step indices into the `dates` axis. `mode="date"` is the right
+choice whenever the dataset has a genuine, intuitive calendar axis (e.g. a monthly ZIP/region
+CSV panel) and you want the split boundary to stay fixed as more history is appended, rather
+than drift with row count the way a ratio-based boundary does.
 
 ### Step 3 – Build ProcBundle
 
@@ -290,7 +307,7 @@ A second pass via `evaluate_mse_loss` computes **processed-space MSE** (no inver
 
 ```
 run_one_cfg(cfg, device)
-  load_aligned_from_cfg(cfg)          # Step 1: dispatches on data.loader (csv / metr_la /
+  load_aligned_from_cfg(cfg)          # Step 1: dispatches on data.loader (csv / metr_la / pems_bay /
                                        #  pems08 / nyc_taxi / chi_taxi / nyc_bike / nyc_crime)
   [optional: subsample n_zip ZIPs]
   build_bundle_from_cfg(aligned, cfg) # Steps 2–5 above

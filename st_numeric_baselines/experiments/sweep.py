@@ -160,8 +160,10 @@ def build_bundle_from_cfg(
     split = make_split(
         aligned.n_time,
         aligned.dates,
+        mode=str(split_cfg.get("mode", "ratio")),
         train_ratio=float(split_cfg.get("train_ratio", 0.7)),
         val_ratio=float(split_cfg.get("val_ratio", 0.1)),
+        val_start_date=split_cfg.get("val_start_date"),
         test_start_date=split_cfg.get("test_start_date"),
     )
 

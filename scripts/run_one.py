@@ -65,11 +65,28 @@ def parse_args() -> argparse.Namespace:
         help="override split.val_ratio (fraction of the pre-test span used for validation)",
     )
     p.add_argument(
+        "--split-mode",
+        type=str,
+        default=None,
+        choices=["ratio", "date"],
+        help="override split.mode: 'ratio' (train_ratio/val_ratio, the default) or 'date' "
+        "(exact val_start_date/test_start_date cutoffs, no ratio involved)",
+    )
+    p.add_argument(
+        "--val-start-date",
+        type=str,
+        default=None,
+        help="exact date (e.g. 2022-01-01) at which the val split begins; only used when "
+        "split.mode='date' (paired with --test-cutoff-date)",
+    )
+    p.add_argument(
         "--test-cutoff-date",
         type=str,
         default=None,
-        help="exact date (e.g. 2022-01-01) at which the test split begins; overrides ratio-based "
-        "splitting for the test boundary (train/val before it are still split by train_ratio/val_ratio)",
+        help="exact date (e.g. 2023-01-01) at which the test split begins; under split.mode='date' "
+        "this is the required test_start_date (paired with --val-start-date); under the default "
+        "split.mode='ratio' it's a legacy exact test-set cutoff (train/val before it are still "
+        "split by train_ratio/val_ratio)",
     )
 
     # artifacts
@@ -115,6 +132,10 @@ def main() -> None:
         cfg.setdefault("split", {})["train_ratio"] = float(args.train_ratio)
     if args.val_ratio is not None:
         cfg.setdefault("split", {})["val_ratio"] = float(args.val_ratio)
+    if args.split_mode is not None:
+        cfg.setdefault("split", {})["mode"] = args.split_mode
+    if args.val_start_date is not None:
+        cfg.setdefault("split", {})["val_start_date"] = args.val_start_date
     if args.test_cutoff_date is not None:
         cfg.setdefault("split", {})["test_start_date"] = args.test_cutoff_date
 
@@ -136,7 +157,12 @@ def main() -> None:
         test_stride=int(_window_cfg.get("test_stride", 1)),
     )
     _window_name = window_label(_window_spec)
-    run_name = args.run_name or f"{_dataset_name}/{_model_name}__{_task_name}__{_window_name}"
+    # Nest window as its own directory level (runs/<dataset>/<window>/<model>__<task>/)
+    # rather than packing it into the leaf folder name -- otherwise every window
+    # config you sweep lands as a sibling of every other, and tools that scan a
+    # dataset's run folder for "the" set of comparable runs (build_case_library.py,
+    # build_oracle_report.py) silently mix runs from different window configs.
+    run_name = args.run_name or f"{_dataset_name}/{_window_name}/{_model_name}__{_task_name}"
     paths = make_run_dir(root=args.out_root, name=run_name, exist_ok=True)
     save_yaml(paths.config_path, cfg)
 

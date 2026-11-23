@@ -13,8 +13,13 @@ xgboost
 networkx
 libpysal
 
-# Optional: pandas.read_hdf for METR-LA's .h5 format (data/io.py::load_metr_la).
+# Optional: pandas.read_hdf for METR-LA/PEMS-BAY's .h5 format
+# (data/io.py::load_metr_la / load_pems_bay).
 tables
+
+# Optional: scripts/download_traffic_dataset.py reads the .h5's sensor-id
+# column order directly (no pytables dependency needed just for that).
+h5py
 
 # Foundation-model wrappers (models/foundation/) -- install separately as needed:
 #   transformers, chronos-forecasting, timesfm (2.5)
