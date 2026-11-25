@@ -2,14 +2,6 @@
 # set -euo pipefail
 
 MODELS=(
-  "dlinear"
-  "patchtst"
-  "itransformer"
-  "timemixer"
-  "timellm"
-  "gpt4ts"
-  "chronos2_zero"
-  "timesfm_zero"
   "staeformer"
   "stid"
   "agcrn"
@@ -21,13 +13,28 @@ MODELS=(
   "d2stgnn"
   "gman"
   "astgcn"
+  "testam"
+  "gc_moe"
+  "dlinear"
+  "patchtst"
+  "itransformer"
+  "timemixer"
+  "timellm"
+  "gpt4ts"
+  "chronos2_zero"
+  "timesfm_zero"
 )
 
 
 DATASETS=(
+  # "pems08"
+  # "redfin_metro_house"
   # "chicago_crime"
-  "pems08"
-  "redfin_metro_house"
+  # "nyc_crime"
+  # "nyc_bike"
+  # chicago_crime_weekly
+  chicago_crime_daily
+  chicago_crime
 )
 
 for DATASET in "${DATASETS[@]}"; do
