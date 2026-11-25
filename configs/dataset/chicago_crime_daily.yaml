@@ -1,0 +1,33 @@
+# Template config for the full HouseTS dataset (data/raw/HouseTS.csv).
+# Not usable until that file is present locally — see README.md for the
+# download link. Adjust feature_cols/drop_cols once the file is in place.
+dataset:
+  name: chicago_crime_daily
+
+data:
+  path: data/chicago_crime_daily/CHI_Crimes_daily.csv
+  id_col: Community Area
+  time_col: Date
+  target_col: THEFT_Count
+  feature_cols: [THEFT_Arrest, THEFT_Domestic, BATTERY_Count, ASSAULT_Count, "CRIMINAL DAMAGE_Count"]
+  drop_cols: []
+  freq: D   # monthly
+  impute: true
+  n_zip: 0
+
+graph:
+  # path to a graph.npz file with 'A' ([N,N] adjacency matrix) and 'ids'
+  # (length-N array of region ids giving A's row/col order) — required by GNN
+  # models. See scripts/build_knn_graph.py for a standalone builder.
+  path: data/chicago_crime_daily/graph.npz
+
+split:
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_start_date: "2026-01-01"
+
+window:
+  seq_len: 7
+  label_len: 7
+  pred_len: 7
+  test_stride: 1  # >1 strides through non-overlapping test windows to cut eval cost
