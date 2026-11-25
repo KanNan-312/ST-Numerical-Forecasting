@@ -47,3 +47,12 @@ data/nyc_taxi/
 data/nyc_bike/
 data/nyc_crime/
 data/chi_taxi/
+# large DCRNN/Graph-WaveNet traffic panels (scripts/download_traffic_dataset.py)
+data/metr_la/
+data/pems_bay/
+
+# cluster-local HPC settings (queue/project/scratch path) -- copy
+# scripts/hpc/hpc.env.example to scripts/hpc/hpc.env and edit locally
+scripts/hpc/hpc.env
+
+data/*

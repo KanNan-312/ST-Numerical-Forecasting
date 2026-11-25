@@ -24,6 +24,7 @@ graph:
   path: null
 
 split:
+  mode: ratio
   train_ratio: 0.7
   val_ratio: 0.1
 

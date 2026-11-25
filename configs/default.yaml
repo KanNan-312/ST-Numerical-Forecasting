@@ -2,9 +2,25 @@
 # right after this file.
 
 split:
+  # mode: "ratio" (default) splits train/val/test proportionally via
+  # train_ratio/val_ratio -- the right choice for dense, regularly-sampled
+  # numeric panels (e.g. PEMS/METR-LA 5-min traffic npz data), where a
+  # 70/10/20-style split is the field's own convention.
+  #
+  # mode: "date" instead requires val_start_date + test_start_date (exact
+  # calendar cutoffs, train_ratio/val_ratio ignored) -- the right choice for
+  # calendar-indexed CSV panels (e.g. a monthly ZIP/region housing or crime
+  # panel) where "val starts Jan 2022, test starts Jan 2023" is how you'd
+  # naturally describe the split, and where the boundary should stay fixed
+  # as more history is appended rather than drift with row count.
+  mode: ratio
   train_ratio: 0.7
   val_ratio: 0.1
-  test_start_date: null  # e.g. "2022-01-01" — overrides ratio-based test-set boundary
+  val_start_date: null  # e.g. "2022-01-01" — required when mode: date
+  test_start_date: null  # e.g. "2023-01-01" — required when mode: date;
+                          # under mode: ratio, setting this alone still works
+                          # as a legacy exact test-set cutoff (train/val
+                          # before it stay ratio-split)
 
 window:
   seq_len: 12

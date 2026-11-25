@@ -5,7 +5,7 @@ relied on.
 Usage
 -----
     python scripts/explain_instance.py \
-      --run-dir runs/dc_house/stgformer__multivariate__w6_h3 \
+      --run-dir runs/dc_house/w6_h3/stgformer__multivariate \
       --region 20001 --lookback-start 2021-06-01 --device cpu
 """
 from __future__ import annotations

@@ -30,6 +30,7 @@ graph:
   path: data/nyc_crime/graph.npz  # 4-connected 46x47 grid, built by scripts/build_grid_graph.py
 
 split:
+  mode: ratio
   train_ratio: 0.7
   val_ratio: 0.1
 

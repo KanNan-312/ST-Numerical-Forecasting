@@ -23,6 +23,8 @@ graph:
   path: data/pems08/graph.npz
 
 split:
+  # Dense regularly-sampled numeric panel -- ratio split (field convention).
+  mode: ratio
   train_ratio: 0.7
   val_ratio: 0.1
 

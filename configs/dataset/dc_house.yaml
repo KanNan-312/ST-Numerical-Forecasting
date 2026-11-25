@@ -24,8 +24,14 @@ graph:
   path: null
 
 split:
-  train_ratio: 0.7
-  val_ratio: 0.1
+  # Calendar-indexed monthly panel -- explicit date cutoffs (142 months,
+  # 2012-03 -> 2023-12) instead of a ratio, so the boundary stays fixed as
+  # more months get appended rather than drifting with row count. Computed
+  # from the old 70/10 ratio split over the data as it stood when this was
+  # written; adjust freely.
+  mode: date
+  val_start_date: "2020-06-30"
+  test_start_date: "2021-09-30"
 
 window:
   seq_len: 12

@@ -123,7 +123,7 @@ _VALUE_SEP = "|"
 
 _DATA_KEYS = ["path", "id_col", "time_col", "target_col", "feature_cols", "n_zip"]
 _WINDOW_KEYS = ["seq_len", "label_len", "pred_len"]
-_SPLIT_KEYS = ["train_ratio", "val_ratio", "test_start_date"]
+_SPLIT_KEYS = ["mode", "train_ratio", "val_ratio", "val_start_date", "test_start_date"]
 
 
 def model_category(model_name: str) -> str:

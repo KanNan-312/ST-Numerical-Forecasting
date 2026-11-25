@@ -85,24 +85,99 @@ def make_date_split(
     return TimeSplit(train=(0, train_end_ex), val=(train_end_ex, val_end_ex), test=(val_end_ex, len(dts)))
 
 
+def make_exact_date_split(
+    dates: Sequence[pd.Timestamp],
+    *,
+    val_start_date: str,
+    test_start_date: str,
+) -> TimeSplit:
+    """Fully explicit split for calendar-indexed panels: train is everything
+    before ``val_start_date``, val is ``[val_start_date, test_start_date)``,
+    test is everything ``>= test_start_date``. No ratio is involved — the
+    boundaries are exact dates, so the split stays identical as more history
+    is appended, which ``make_ratio_split``'s proportional boundaries don't.
+
+    Intended for datasets with a genuine, intuitive calendar axis (e.g. a
+    monthly ZIP/region panel loaded from CSV) where "val starts Jan 2022,
+    test starts Jan 2023" is how you'd naturally describe the split, as
+    opposed to dense regularly-sampled numeric panels (e.g. PEMS/METR-LA
+    5-min traffic npz data) where a 70/10/20 ratio split is the field's own
+    convention (see :func:`make_ratio_split`).
+    """
+    if len(dates) == 0:
+        raise ValueError("dates is empty")
+
+    dts = [pd.Timestamp(d) for d in dates]
+    val_start_ts = pd.Timestamp(val_start_date)
+    test_start_ts = pd.Timestamp(test_start_date)
+    if val_start_ts >= test_start_ts:
+        raise ValueError(
+            f"val_start_date={val_start_date!r} must be before test_start_date={test_start_date!r}"
+        )
+
+    def _first_at_or_after(ts: pd.Timestamp) -> int:
+        return next((i for i, d in enumerate(dts) if d >= ts), len(dts))
+
+    val_start = _first_at_or_after(val_start_ts)
+    test_start = _first_at_or_after(test_start_ts)
+
+    if val_start < 1:
+        raise ValueError(f"val_start_date={val_start_date!r} leaves no room for a train split")
+    if test_start <= val_start:
+        raise ValueError(
+            f"test_start_date={test_start_date!r} is not after val_start_date={val_start_date!r} "
+            "in the provided date axis"
+        )
+    if test_start >= len(dts):
+        raise ValueError(f"test_start_date={test_start_date!r} leaves no room for a test split")
+
+    return TimeSplit(train=(0, val_start), val=(val_start, test_start), test=(test_start, len(dts)))
+
+
 def make_split(
     n_time: int,
     dates: Optional[Sequence[pd.Timestamp]] = None,
     *,
+    mode: str = "ratio",
     train_ratio: float = 0.7,
     val_ratio: float = 0.1,
+    val_start_date: Optional[str] = None,
     test_start_date: Optional[str] = None,
 ) -> TimeSplit:
-    """Ratio-based split, with an optional exact cutoff date for the test set.
+    """Dispatch to one of two split protocols.
 
-    When ``test_start_date`` is given, the test split starts at the first date
-    ``>= test_start_date`` and everything before it is divided into train/val
-    by ``train_ratio``/``val_ratio`` (relative to each other). Otherwise this
-    is equivalent to :func:`make_ratio_split`.
+    ``mode="date"`` (recommended for calendar-indexed CSV panels, e.g. a
+    monthly ZIP/region housing or crime panel): requires both
+    ``val_start_date`` and ``test_start_date`` — see :func:`make_exact_date_split`.
+    Train/val/test boundaries are exact dates, not ratios.
+
+    ``mode="ratio"`` (default; recommended for dense regularly-sampled numeric
+    panels, e.g. PEMS/METR-LA npz traffic data, where a 70/10/20-style split
+    is the field's own convention): ``train_ratio``/``val_ratio`` split the
+    series proportionally (see :func:`make_ratio_split`). For backward
+    compatibility, passing ``test_start_date`` alone (no ``val_start_date``)
+    under ``mode="ratio"`` keeps the legacy behavior: the test split starts at
+    the first date ``>= test_start_date`` and everything before it is divided
+    into train/val by ``train_ratio``/``val_ratio`` (relative to each other).
     """
+    mode = (mode or "ratio").lower()
+
+    if mode == "date":
+        if val_start_date is None or test_start_date is None:
+            raise ValueError("split.mode='date' requires both val_start_date and test_start_date")
+        if not dates:
+            raise ValueError("dates is required when split.mode='date'")
+        if len(dates) != n_time:
+            raise ValueError(f"len(dates)={len(dates)} does not match n_time={n_time}")
+        return make_exact_date_split(dates, val_start_date=val_start_date, test_start_date=test_start_date)
+
+    if mode != "ratio":
+        raise ValueError(f"Unknown split.mode={mode!r} (expected 'ratio' or 'date')")
+
     if test_start_date is None:
         return make_ratio_split(n_time, train_ratio=train_ratio, val_ratio=val_ratio)
 
+    # legacy partial-date behavior: exact test cutoff, ratio-split train/val before it
     if not dates:
         raise ValueError("dates is required when test_start_date is set")
     if len(dates) != n_time:

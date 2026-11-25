@@ -4,7 +4,7 @@ Numeric (non-LLM) spatiotemporal forecasting baselines across region-based
 domains: housing (the namesake **HouseTS** dataset — a large-scale
 multimodal spatiotemporal dataset for long-horizon housing-market
 forecasting at the U.S. ZIP-code level), crime, and traffic/urban-mobility
-panels (METR-LA, PEMS-08, the UrbanGPT benchmark). Covers statistical/ML
+panels (METR-LA, PEMS-BAY, PEMS-08, the UrbanGPT benchmark). Covers statistical/ML
 baselines, deep sequence models, graph neural networks, foundation-model
 wrappers, and ensemble/mixture-of-experts model-selection research
 (oracle/ensemble upper-bound analysis, GC-MoE, TESTAM) — see "Project
@@ -52,6 +52,7 @@ st_numeric_baselines/
   experiments/           sweep.py (run_one_cfg), run_loader.py, artifacts.py, explainable_library.py
   case_library.py, oracle_selection.py, explain.py, shap_occlusion.py   # case-library / explainability
 scripts/                 CLI entry points — run_one.py is the main one; see "Quick start" below
+  hpc/                   PBS GPU job submission (submit_train.sh + train.pbs) — see "Quick start" #4
 archive/                 retired pre-existing files, kept for reference (see archive/README.md)
 ```
 
@@ -108,38 +109,52 @@ graph — see "GNN models" below for how the graph is supplied.
 
 Add a new dataset by copying `configs/dataset/dc_house.yaml` and pointing it at your CSV.
 
-### Traffic datasets (METR-LA / PEMS-08)
+### Traffic datasets (METR-LA / PEMS-BAY / PEMS-08)
 
 Standard traffic benchmarks use different raw formats than the CSV panels above, so they
 get their own loaders instead of a CSV config — set `data.loader` in the dataset config:
 
 ```yaml
 data:
-  loader: metr_la          # or pems08
+  loader: metr_la          # or pems_bay / pems08
   path: data/metr_la/metr-la.h5
   target_col: speed
   feature_cols: [time_of_day]   # DCRNN/Graph-WaveNet/MTGNN raw-channel convention
 graph:
-  path: data/metr_la/graph.npz   # build with scripts/build_traffic_graph.py
+  path: data/metr_la/graph.npz
 ```
 
-See `configs/dataset/metr_la.yaml` / `configs/dataset/pems08.yaml` for working examples
-(seq_len=12/pred_len=12 at 5-min resolution, 70/10/20 chronological split, matching
-DCRNN/Graph WaveNet/AGCRN's own convention). `st_numeric_baselines.data.io.load_metr_la`/
-`load_pems08` build the standard `AlignedData` panel from each format directly; build the
-matching `graph.npz` from a `from,to,cost` distances CSV with:
+See `configs/dataset/metr_la.yaml` / `configs/dataset/pems_bay.yaml` / `configs/dataset/pems08.yaml`
+for working examples (seq_len=12/pred_len=12 at 5-min resolution, 70/10/20 chronological
+split, matching DCRNN/Graph WaveNet/AGCRN's own convention).
+
+**METR-LA / PEMS-BAY**: get the data, sensor graph and `graph.npz` in one step —
 
 ```bash
-python scripts/build_traffic_graph.py \
-  --distances-csv data/metr_la/distances_la_2012.csv \
-  --sensor-ids data/metr_la/sensor_ids.txt \
-  --out data/metr_la/graph.npz
+python scripts/download_traffic_dataset.py --dataset metr_la pems_bay
 ```
 
-(the Gaussian-kernel-threshold adjacency confirmed from DCRNN's own `gen_adj_mx.py`).
-`PEMS-08`'s `.npz` has no embedded calendar timestamps — pass `data.start_time` (its
-commonly-cited release date) to get a real day-of-week signal; without it, `time_of_day`
-is still valid (a cyclic quantity) but day-of-week is zeroed out rather than fabricated.
+This pulls each dataset's `.h5` + sensor-distance CSV from the
+`TorchSpatiotemporal/ProcessedDatasets` Hugging Face mirror (a stable, directly-downloadable
+HTTPS re-package of the original DCRNN release — most other mirrors of this data require a
+Google Drive click-through instead), verifies the sensor ordering against the `.h5`'s own
+column order, and builds `graph.npz` via the same Gaussian-kernel-threshold adjacency
+`scripts/build_traffic_graph.py` exposes standalone (confirmed from DCRNN's own
+`gen_adj_mx.py`) — pass `--distances-csv`/`--sensor-ids`/`--out` yourself if you'd rather
+build the graph from a different sensor-distance file. `st_numeric_baselines.data.io.load_metr_la`/
+`load_pems_bay`/`load_pems08` build the standard `AlignedData` panel from each format
+directly. Note: METR-LA encodes missing readings as a literal `0` in the raw `.h5` (treated
+as missing and imputed by `load_metr_la`); PEMS-BAY does not (confirmed by inspection — its
+near-zero exact values are genuine low-speed readings, not missing data, so `load_pems_bay`
+leaves them alone).
+
+**PEMS-08**: no automated download (distributed by the ASTGCN/STSGCN/AGCRN authors, not
+mirrored anywhere with a stable direct-download URL as of writing) — download
+`PEMS08.npz` yourself and build `graph.npz` from its distance/adjacency CSV with
+`scripts/build_traffic_graph.py` directly. Its `.npz` has no embedded calendar
+timestamps — pass `data.start_time` (its commonly-cited release date) to get a real
+day-of-week signal; without it, `time_of_day` is still valid (a cyclic quantity) but
+day-of-week is zeroed out rather than fabricated.
 
 **Time-of-day/day-of-week handling is genuinely split across model families** (confirmed
 from each original repo's source) — the data pipeline supports both:
@@ -222,8 +237,10 @@ and split (train/val ratio, test cutoff) are configured either in `configs/defau
 block there to override for just that dataset), and the CLI flags below are for one-off
 overrides on top of whichever config is in effect.
 
-Runs are written to `runs/<dataset>/<model>__<task>__<window>/`, where `<window>` is derived
-from the effective `seq_len`/`pred_len` (e.g. `w12_h6`).
+Runs are written to `runs/<dataset>/<window>/<model>__<task>/`, where `<window>` is derived
+from the effective `seq_len`/`pred_len` (e.g. `w12_h6`) and nested as its own directory level
+— so sweeping several window configs for the same dataset never mixes their run folders
+together, and tools like `build_case_library.py` can point `--window` at exactly one.
 
 Example (dc_house, multivariate, model `dlinear`, using whatever window/split configs say):
 
@@ -258,6 +275,19 @@ python scripts/run_one.py --dataset dc_house --model dlinear \
   --train-ratio 0.8 --val-ratio 0.1  # override the train/val split of the remaining (pre-test) span
 ```
 
+### 4) Submit a GPU training job on a PBS cluster
+
+```bash
+cp scripts/hpc/hpc.env.example scripts/hpc/hpc.env   # once per cluster -- fill in queue/project/scratch path
+scripts/hpc/submit_train.sh --dataset metr_la --model stgcn --walltime 08:00:00
+```
+
+The job copies the repo + just that one dataset to a scratch directory, trains there, mirrors
+progress back to this repo's `runs/`/`logs/` every 60s while it runs, copies back the final
+result, and frees the scratch directory. See `scripts/hpc/submit_train.sh --help` for the
+full option list and, importantly, how to track a running job (`qstat`, tailing the mirrored
+log) instead of just waiting for it to finish.
+
 ---
 
 ## Window and split configuration
@@ -268,9 +298,11 @@ presets to choose from. `configs/default.yaml` sets the global defaults:
 
 ```yaml
 split:
-  train_ratio: 0.7        # fraction of the pre-test span used for training
-  val_ratio: 0.1          # fraction of the pre-test span used for validation
-  test_start_date: null   # e.g. "2022-01-01" — overrides ratio-based test-set boundary
+  mode: ratio              # "ratio" (default) or "date" — see below
+  train_ratio: 0.7         # fraction of the pre-test span used for training
+  val_ratio: 0.1           # fraction of the pre-test span used for validation
+  val_start_date: null     # e.g. "2022-01-01" — required when mode: date
+  test_start_date: null    # e.g. "2023-01-01" — required when mode: date
 
 window:
   seq_len: 12             # lookback length
@@ -279,11 +311,25 @@ window:
   test_stride: 1          # >1 strides through non-overlapping test windows to cut eval cost
 ```
 
+Two split protocols, picked per-dataset via `split.mode`:
+- **`mode: ratio`** (default) — `train_ratio`/`val_ratio` split the series proportionally.
+  The right choice for dense, regularly-sampled numeric panels (e.g. PEMS/METR-LA 5-min
+  traffic data), where a 70/10/20-style split is the field's own convention and the row
+  count is stable. Passing `test_start_date` alone under this mode still works as a legacy
+  exact test-set cutoff (train/val before it stay ratio-split).
+- **`mode: date`** — requires both `val_start_date` and `test_start_date`; the split is exact
+  calendar cutoffs, `train_ratio`/`val_ratio` ignored entirely. The right choice for
+  calendar-indexed CSV panels (e.g. a monthly ZIP/region housing or crime panel) where "val
+  starts Jan 2022, test starts Jan 2023" is how you'd naturally describe the split, and
+  where you want the boundary to stay fixed as more history gets appended rather than drift
+  with row count. See `configs/dataset/dc_house.yaml` / `chicago_crime.yaml` for working
+  examples.
+
 Override either block for a specific dataset by adding a `window:`/`split:` block to its
 `configs/dataset/<name>.yaml`, or override individual values from the CLI with
 `--seq-len`/`--label-len`/`--pred-len`/`--test-stride`/`--train-ratio`/`--val-ratio`/
-`--test-cutoff-date` (each only takes effect if explicitly passed), or with
-`--set window.seq_len=12` / `--set split.train_ratio=0.8` for anything else.
+`--split-mode`/`--val-start-date`/`--test-cutoff-date` (each only takes effect if explicitly
+passed), or with `--set window.seq_len=12` / `--set split.train_ratio=0.8` for anything else.
 
 ---
 
@@ -573,26 +619,28 @@ instance, in raw target units:
 
 ```bash
 python scripts/build_case_library.py \
-  --runs-root runs/dc_house \
+  --dataset dc_house --window w12_h12 \
   --models dlinear patchtst gcn_tcn stgformer \
-  --out-dir runs/dc_house/case_library
+  --out-dir runs/dc_house/w12_h12/case_library
 ```
 
-Two CSVs are written under `--out-dir`:
+(`--dataset`/`--window` compose `--out-root/<dataset>/<window>` — the layout `run_one.py`
+writes to; pass `--runs-root` directly instead if you want full control over the path.)
 
-1. **`case_library_detail.csv`** — one row per (model, instance):
-   `model, model_category, split, region_id, lookback_start, forecast_start,
-   forecast_end, mse, mae, rmse, y_true_raw, y_pred_raw`. `mse`/`mae`/`rmse`
-   are over the whole forecast window (raw target units); `y_true_raw` and
-   `y_pred_raw` hold that window's actual true and forecasted values, one
-   value per horizon step, pipe-joined into a single cell (e.g.
-   `412000.0000|418500.0000|421000.0000`). Computed first, directly from each
-   model's predictions.
-2. **`case_library.csv`** — the summary: one row per instance, the winning
-   model only (lowest mae) — `region_id, lookback_start, forecast_start,
-   forecast_end, model_best, model_best_mae, model_best_rmse,
-   model_best_category` (category is `spatial_temporal` / `DL` / `foundation`,
-   or `other` for statistical/ML baselines) — derived from the detail table.
+One CSV is written under `--out-dir`:
+
+- **`case_library.csv`** — one row per (model, instance):
+  `model, model_category, split, region_id, lookback_start, forecast_start,
+  forecast_end, mse, mae, rmse, y_true_raw, y_pred_raw, is_best_model`.
+  `mse`/`mae`/`rmse` are over the whole forecast window (raw target units);
+  `y_true_raw` and `y_pred_raw` hold that window's actual true and forecasted
+  values, one value per horizon step, pipe-joined into a single cell (e.g.
+  `412000.0000|418500.0000|421000.0000`); `is_best_model` flags the row with
+  the lowest `mae` within its `(region_id, lookback_start, forecast_start,
+  forecast_end)` group. Everything lives in this one table — filter
+  `is_best_model` to recover "the winning model per instance" (plus
+  `model_category`, `spatial_temporal`/`DL`/`foundation`/`other`) if you only
+  want that view, rather than a second derived file to keep in sync.
 
 It reuses each run's own saved checkpoint (no retraining — except models with
 no train-dependent state, like `timesfm_zero`/`chronos2_zero`, which run
@@ -619,10 +667,10 @@ there on unseen data", not on an artificially densified re-sampling of it.
 
 ```bash
 python scripts/build_oracle_report.py \
-  --runs-root runs/dc_house \
+  --dataset dc_house --window w12_h12 \
   --models dlinear patchtst gcn_tcn stgformer stid agcrn mtgnn \
   --ensemble-method mean \
-  --out-dir runs/dc_house/oracle_report
+  --out-dir runs/dc_house/w12_h12/oracle_report
 ```
 
 It scores every model on every shared instance (reusing
@@ -679,7 +727,7 @@ forecast, not the ground truth):
 
 ```bash
 python scripts/explain_instance.py \
-  --run-dir runs/dc_house/stgformer__multivariate__w6_h3 \
+  --run-dir runs/dc_house/w6_h3/stgformer__multivariate \
   --region 20001 --lookback-start 2021-06-01 --device cpu
 ```
 
@@ -708,17 +756,17 @@ multivariate model, and STExplainer — reusing their already-trained checkpoint
 
 ```bash
 python scripts/build_explainable_case_library.py \
-  --runs-root runs/dc_house \
+  --dataset dc_house --window w12_h12 \
   --univariate-model timesfm_zero \
   --multivariate-model chronos2_zero \
   --stexplainer-model stexplainer \
   --explain-n-instances 20 \
-  --out-dir runs/dc_house/explainable_case_library
+  --out-dir runs/dc_house/w12_h12/explainable_case_library
 ```
 
 Writes three CSVs:
 - **`forecasts_detail.csv`** — point forecasts from all 3 runs, every instance
-  (same shape as `build_case_library.py`'s detail table).
+  (same shape as `build_case_library.py`'s `case_library.csv`).
 - **`feature_importance.csv`** — grouped **exact Shapley** feature importance for
   the multivariate model (`st_numeric_baselines.shap_occlusion`, implementing
   arXiv:2604.28149's method: exact Shapley value over `2^N` coalitions of
