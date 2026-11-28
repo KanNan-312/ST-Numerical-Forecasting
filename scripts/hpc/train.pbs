@@ -1,52 +1,70 @@
 #!/bin/bash
 # PBS job body: copy repo+data to scratch, train, mirror progress back live,
-# copy the result back, free scratch. Not meant to be run directly -- submit
-# it via scripts/hpc/submit_train.sh, which fills in the resource request
-# and the -v variables this script reads (REPO_DIR, DATASET, MODEL, TASK,
-# RUN_ARGS, SCRATCH_BASE).
+# move the result back, free scratch. Follows the facility's own example job
+# script's conventions (flat #PBS -l resource lines, $PBS_O_WORKDIR as the
+# submission directory, "/scratch/${USER}_${PBS_JOBID%.*}" scratch naming) --
+# only deviating where this job genuinely needs more than that minimal
+# template (it copies a whole repo + mirrors progress mid-run, not just one
+# input file at the start and one output file at the end).
+#
+# Not meant to be run directly -- submit via scripts/hpc/submit_train.sh,
+# which cd's to the repo root before calling qsub (so $PBS_O_WORKDIR below
+# is the repo root) and passes DATASET/MODEL/TASK/RUN_ARGS/SCRATCH_BASE via
+# qsub -v.
 #
 # Default resource request (overridden per-submission by submit_train.sh's
-# qsub -l flags, so editing these only changes the fallback if you ever
+# own qsub -l flags, so editing these only changes the fallback if you ever
 # qsub this file directly):
 #PBS -N stnf_train
-#PBS -l select=1:ncpus=4:mem=32gb:ngpus=1
+#PBS -l ncpus=4
+#PBS -l ngpus=1
+#PBS -l mem=32gb
 #PBS -l walltime=04:00:00
 #PBS -j oe
 #PBS -k oe
 
 set -euo pipefail
 
-: "${REPO_DIR:?submit via scripts/hpc/submit_train.sh, not qsub directly}"
 : "${DATASET:?submit via scripts/hpc/submit_train.sh, not qsub directly}"
 : "${MODEL:?submit via scripts/hpc/submit_train.sh, not qsub directly}"
 : "${TASK:=multivariate}"
 : "${RUN_ARGS:=}"
-: "${SCRATCH_BASE:=/scratch/${USER:-$(id -un)}}"
-: "${PBS_JOBID:=$$}"   # fallback for local testing outside PBS
+: "${SCRATCH_BASE:=/scratch}"
+: "${PBS_JOBID:=local.$$}"   # fallback for local testing outside PBS
 
-JOB_SCRATCH="${SCRATCH_BASE%/}/stnf_${PBS_JOBID}"
-SCRATCH_REPO="$JOB_SCRATCH/repo"
+# Change to the PBS working directory where qsub was started from -- this
+# repo's root (submit_train.sh cd's there before calling qsub).
+cd "${PBS_O_WORKDIR:?this script must be run under PBS, or with PBS_O_WORKDIR set for local testing}"
+
+# Create a unique scratch directory (same naming as the facility's own
+# example job script: one directory per user per job, keyed off the numeric
+# part of the job id).
+SCRATCH="${SCRATCH_BASE%/}/${USER:-$(id -un)}_${PBS_JOBID%.*}"
+mkdir -p "${SCRATCH}"
+
 MIRROR_INTERVAL_SEC=60
-
-echo "[setup] host=$(hostname)  job=$PBS_JOBID  scratch=$JOB_SCRATCH"
-mkdir -p "$JOB_SCRATCH" "$REPO_DIR/logs" "$REPO_DIR/runs"
+MIRROR_PID=""
 
 cleanup() {
   local status=$?
-  echo "[cleanup] removing scratch $JOB_SCRATCH (exit=$status)"
-  rm -rf "$JOB_SCRATCH"
-  # NOTE: this trap runs on normal exit AND on most errors (set -e), but will
-  # NOT run if PBS kills the job outright for exceeding --walltime (SIGKILL
-  # isn't trappable) -- size --walltime with margin, and see the "orphaned
-  # scratch" note in submit_train.sh's --help / the README HPC section for
-  # how to find and clear those manually if it ever happens.
-  exit "$status"
+  [[ -n "${MIRROR_PID}" ]] && kill "${MIRROR_PID}" 2>/dev/null || true
+  echo "[cleanup] removing scratch ${SCRATCH} (exit=${status})"
+  # A plain input file + `rmdir` (the facility's minimal example) isn't
+  # enough here -- this scratch dir holds a whole copied repo, so it needs
+  # `rm -rf`. This trap fires on normal exit and on most errors (set -e),
+  # but NOT if PBS kills the job outright for exceeding --walltime (SIGKILL
+  # isn't trappable) -- size --walltime with margin; an orphaned
+  # ${SCRATCH_BASE}/${USER}_<jobid> dir from a killed job needs a manual
+  # `rm -rf` afterward.
+  rm -rf "${SCRATCH}"
+  exit "${status}"
 }
 trap cleanup EXIT
 
-# ---- 1. copy repo (minus runs/ and every dataset but the one we need) ----
-echo "[copy-in] repo -> $SCRATCH_REPO (excluding runs/, data/, .git/)"
-mkdir -p "$SCRATCH_REPO"
+echo "[setup] host=$(hostname)  job=${PBS_JOBID}  scratch=${SCRATCH}"
+
+# ---- 1. copy the repo (minus runs/ and every dataset but the one we need),
+#         plus just that one dataset, into scratch ----
 rsync -a \
   --exclude 'runs/' \
   --exclude 'data/' \
@@ -54,60 +72,52 @@ rsync -a \
   --exclude '__pycache__/' \
   --exclude '*.pyc' \
   --exclude 'logs/' \
-  "$REPO_DIR"/ "$SCRATCH_REPO"/
+  "${PBS_O_WORKDIR}"/ "${SCRATCH}"/
 
-echo "[copy-in] data/$DATASET -> $SCRATCH_REPO/data/$DATASET"
-mkdir -p "$SCRATCH_REPO/data/$DATASET"
-rsync -a "$REPO_DIR/data/$DATASET"/ "$SCRATCH_REPO/data/$DATASET"/
-mkdir -p "$SCRATCH_REPO/runs"
+mkdir -p "${SCRATCH}/data/${DATASET}"
+rsync -a "${PBS_O_WORKDIR}/data/${DATASET}"/ "${SCRATCH}/data/${DATASET}"/
+mkdir -p "${SCRATCH}/runs" "${SCRATCH}/logs"
 
 # ---- 2. environment ----
 # shellcheck source=/dev/null
-source "$REPO_DIR/scripts/hpc/hpc.env"
+source "${PBS_O_WORKDIR}/scripts/hpc/hpc.env"
 setup_environment
 
-cd "$SCRATCH_REPO"
-mkdir -p logs
+cd "${SCRATCH}"
 LOG_FILE="logs/${PBS_JOBID}.log"
-HOME_LOG="$REPO_DIR/logs/${PBS_JOBID}.log"
 
-# ---- 3. mirror scratch runs/ + the live log back to the home-visible repo
-#         every MIRROR_INTERVAL_SEC while training runs, so progress can be
-#         watched from the home filesystem without waiting for the job to
-#         finish (see submit_train.sh's --help for what to actually watch) ----
+# ---- 3. mirror scratch runs/ + the live log back to $PBS_O_WORKDIR every
+#         MIRROR_INTERVAL_SEC while training runs, so progress can be
+#         watched from the submission directory without waiting for the job
+#         to finish (see submit_train.sh's --help for what to watch) ----
 mirror_back() {
-  rsync -a "$SCRATCH_REPO/runs/" "$REPO_DIR/runs/" 2>/dev/null || true
-  cp "$LOG_FILE" "$HOME_LOG" 2>/dev/null || true
+  rsync -a "${SCRATCH}/runs/" "${PBS_O_WORKDIR}/runs/" 2>/dev/null || true
+  mkdir -p "${PBS_O_WORKDIR}/logs"
+  cp "${LOG_FILE}" "${PBS_O_WORKDIR}/logs/${PBS_JOBID}.log" 2>/dev/null || true
 }
-mirror_loop() {
-  while true; do
-    sleep "$MIRROR_INTERVAL_SEC"
-    mirror_back
-  done
-}
-mirror_loop &
+( while true; do sleep "${MIRROR_INTERVAL_SEC}"; mirror_back; done ) &
 MIRROR_PID=$!
-stop_mirror() { kill "$MIRROR_PID" 2>/dev/null || true; }
 
 # ---- 4. run ----
-echo "[run] python scripts/run_one.py --dataset $DATASET --model $MODEL --task $TASK --device cuda $RUN_ARGS"
+echo "[run] python scripts/run_one.py --dataset ${DATASET} --model ${MODEL} --task ${TASK} --device cuda ${RUN_ARGS}"
 set +e
 python scripts/run_one.py \
-  --dataset "$DATASET" \
-  --model "$MODEL" \
-  --task "$TASK" \
+  --dataset "${DATASET}" \
+  --model "${MODEL}" \
+  --task "${TASK}" \
   --device cuda \
-  --out-root "$SCRATCH_REPO/runs" \
-  $RUN_ARGS \
-  > >(tee "$LOG_FILE") 2>&1
+  --out-root "${SCRATCH}/runs" \
+  ${RUN_ARGS} \
+  > >(tee "${LOG_FILE}") 2>&1
 RUN_STATUS=$?
 set -e
 
-stop_mirror
+kill "${MIRROR_PID}" 2>/dev/null || true
+MIRROR_PID=""
 
-# ---- 5. copy back the final result ----
-echo "[copy-out] runs/$DATASET -> $REPO_DIR/runs/$DATASET  (status=$RUN_STATUS)"
+# ---- 5. move the final result back to the working directory ----
+cd "${PBS_O_WORKDIR}"
 mirror_back
-echo "[done] exit=$RUN_STATUS"
-exit "$RUN_STATUS"
-# cleanup trap (on EXIT) removes $JOB_SCRATCH after this
+echo "[done] exit=${RUN_STATUS}"
+exit "${RUN_STATUS}"
+# cleanup trap (on EXIT) removes ${SCRATCH} after this

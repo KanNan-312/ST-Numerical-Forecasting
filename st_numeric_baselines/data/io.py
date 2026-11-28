@@ -406,7 +406,7 @@ def load_pems08(
 
     channel_names = ["flow", "occupancy", "speed"][:c]
     if target_col not in channel_names:
-        raise ValueError(f"target_col={target_col!r} not in available PEMS08 channels {channel_names}")
+        raise ValueError(f"target_col={target_col!r} not in available PEMS0x channels {channel_names}")
 
     anchor = start_time if start_time is not None else "1970-01-01"
     dates = list(pd.date_range(anchor, periods=t, freq=f"{int(freq_minutes)}min"))
@@ -687,7 +687,13 @@ def load_aligned_from_cfg(cfg: Dict[str, Any]) -> AlignedData:
             feature_cols=data_cfg.get("feature_cols"),
             impute=bool(data_cfg.get("impute", True)),
         )
-    elif loader == "pems08":
+    elif loader in ("pems08", "pems03", "pems04", "pems07"):
+        # load_pems08 is named after the dataset it was first written for, but
+        # its logic is PEMS0x-format-generic (channel_names = ["flow",
+        # "occupancy", "speed"][:c] already handles PEMS03/07's C=1
+        # flow-only npz the same way as PEMS04/08's C=3) -- confirmed by
+        # directly inspecting all four official .npz files (see
+        # scripts/download_pems_dataset.py's docstring for the shapes).
         aligned = load_pems08(
             data_cfg.get("path"),
             target_col=str(data_cfg.get("target_col", "flow")),
@@ -714,8 +720,8 @@ def load_aligned_from_cfg(cfg: Dict[str, Any]) -> AlignedData:
         )
     else:
         raise ValueError(
-            f"Unknown data.loader={loader!r} (expected one of: csv, metr_la, pems_bay, pems08, "
-            "nyc_taxi, chi_taxi, nyc_bike, nyc_crime)"
+            f"Unknown data.loader={loader!r} (expected one of: csv, metr_la, pems_bay, "
+            "pems03, pems04, pems07, pems08, nyc_taxi, chi_taxi, nyc_bike, nyc_crime)"
         )
 
     n_zip = int(data_cfg.get("n_zip", 0) or 0)

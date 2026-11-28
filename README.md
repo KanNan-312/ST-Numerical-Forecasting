@@ -275,18 +275,25 @@ python scripts/run_one.py --dataset dc_house --model dlinear \
   --train-ratio 0.8 --val-ratio 0.1  # override the train/val split of the remaining (pre-test) span
 ```
 
-### 4) Submit a GPU training job on a PBS cluster
+### 4) Submit GPU training jobs on a PBS cluster
 
 ```bash
 cp scripts/hpc/hpc.env.example scripts/hpc/hpc.env   # once per cluster -- fill in queue/project/scratch path
-scripts/hpc/submit_train.sh --dataset metr_la --model stgcn --walltime 08:00:00
 ```
 
-The job copies the repo + just that one dataset to a scratch directory, trains there, mirrors
-progress back to this repo's `runs/`/`logs/` every 60s while it runs, copies back the final
-result, and frees the scratch directory. See `scripts/hpc/submit_train.sh --help` for the
-full option list and, importantly, how to track a running job (`qstat`, tailing the mirrored
-log) instead of just waiting for it to finish.
+Two ways to submit, mirroring the two ways you already run things locally:
+
+- **A whole batch** (the GPU/scratch equivalent of `scripts/run_all.sh`): edit the
+  `DATASETS`/`MODELS` arrays directly in `scripts/hpc/train_all.pbs` — same idea as editing
+  them in `run_all.sh` — then just `scripts/hpc/submit_all.sh` (no `--dataset`/`--model` flags
+  to juggle; what runs lives in the script).
+- **One one-off run**: `scripts/hpc/submit_train.sh --dataset metr_la --model stgcn --walltime 08:00:00`.
+
+Either way, the job copies the repo + just the dataset(s) it needs to a scratch directory,
+trains there, mirrors progress back to this repo's `runs/`/`logs/` every 60s while it runs,
+moves back the final result, and frees the scratch directory. See `scripts/hpc/submit_all.sh
+--help` / `scripts/hpc/submit_train.sh --help` and, importantly, how to track a running job
+(`qstat`, tailing the mirrored log) instead of just waiting for it to finish.
 
 ---
 

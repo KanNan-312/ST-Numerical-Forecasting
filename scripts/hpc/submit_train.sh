@@ -55,7 +55,7 @@ WALLTIME="${DEFAULT_WALLTIME:-04:00:00}"
 NCPUS="${DEFAULT_NCPUS:-4}"
 MEM="${DEFAULT_MEM:-32gb}"
 GPUS="${DEFAULT_GPUS:-1}"
-QUEUE="${DEFAULT_QUEUE:-gpu}"
+QUEUE="${DEFAULT_QUEUE:-}"
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -90,16 +90,24 @@ mkdir -p "$REPO_DIR/logs"
 JOB_NAME="stnf_${DATASET}_${MODEL}"
 
 echo "Submitting: dataset=$DATASET model=$MODEL task=$TASK" \
-     "resources=select=1:ncpus=${NCPUS}:mem=${MEM}:ngpus=${GPUS},walltime=${WALLTIME} queue=$QUEUE"
+     "resources=ncpus=${NCPUS},mem=${MEM},ngpus=${GPUS},walltime=${WALLTIME}" \
+     "${QUEUE:+queue=$QUEUE}"
 
+# cd to the repo root first so $PBS_O_WORKDIR (what train.pbs treats as the
+# repo root) is this repo, regardless of where submit_train.sh itself was
+# invoked from -- PBS sets it to qsub's own cwd at submission time, matching
+# the facility's own example job script's use of $PBS_O_WORKDIR.
+cd "$REPO_DIR"
 qsub \
   -N "$JOB_NAME" \
-  -q "$QUEUE" \
-  -l "select=1:ncpus=${NCPUS}:mem=${MEM}:ngpus=${GPUS}" \
+  -l "ncpus=${NCPUS}" \
+  -l "ngpus=${GPUS}" \
+  -l "mem=${MEM}" \
   -l "walltime=${WALLTIME}" \
+  ${QUEUE:+-q "$QUEUE"} \
   ${PROJECT_CODE:+-P "$PROJECT_CODE"} \
   -o "$REPO_DIR/logs/${JOB_NAME}.o" \
   -e "$REPO_DIR/logs/${JOB_NAME}.e" \
   -k oe \
-  -v "REPO_DIR=${REPO_DIR},DATASET=${DATASET},MODEL=${MODEL},TASK=${TASK},SCRATCH_BASE=${SCRATCH_BASE},RUN_ARGS=${EXTRA_ARGS[*]}" \
+  -v "DATASET=${DATASET},MODEL=${MODEL},TASK=${TASK},SCRATCH_BASE=${SCRATCH_BASE},RUN_ARGS=${EXTRA_ARGS[*]}" \
   "$SCRIPT_DIR/train.pbs"

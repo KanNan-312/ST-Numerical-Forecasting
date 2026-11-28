@@ -1,0 +1,45 @@
+# PEMS-07 (Caltrans PeMS traffic flow, 5-min intervals, flow-only --
+# confirmed by inspection: this release's .npz has C=1, no occupancy/speed
+# channels, unlike PEMS04/08's C=3). Download + build graph.npz with
+# `python scripts/download_pems_dataset.py --dataset pems07`.
+# start_time="2017-05-01": LOWER CONFIDENCE than pems04/pems08's start_time --
+# PEMS07 (introduced by STSGCN, AAAI 2020, not ASTGCN) isn't covered by the
+# ASTGCN authors' own repo, and the STSGCN paper itself was unreachable
+# (AAAI's site blocks automated fetches). "May 1" is this repo's own
+# synthesis of secondary sources (most repeat "May - Aug 2017", commonly
+# as ending Aug 31) cross-checked against this release's own sample count:
+# 28224 samples * 5min = exactly 98 days, which only reaches Aug 7 2017, not
+# Aug 31 -- a few sources do note this shorter Aug 6/7 end date, and it's
+# the one actually consistent with the file you'll download, so that's what
+# anchors start_time here. If you have the STSGCN paper or the PeMS
+# portal's own metadata, verify against that instead.
+dataset:
+  name: pems07
+
+data:
+  loader: pems07
+  path: data/pems07/PEMS07.npz
+  target_col: flow
+  feature_cols: [time_of_day]   # only flow + time_of_day available -- no occupancy/speed channel
+  start_time: "2017-05-01"
+  freq_minutes: 5
+  impute: true
+  n_zip: 0
+
+graph:
+  path: data/pems07/graph.npz
+
+split:
+  # 6:2:2 chronological ratio split -- the standard convention for this
+  # dataset family (ASTGCN/STSGCN/AGCRN and most follow-on benchmark papers),
+  # confirmed as the dominant convention across the literature evaluating
+  # these datasets, not a count-based default we picked ourselves.
+  mode: ratio
+  train_ratio: 0.6
+  val_ratio: 0.2
+
+window:
+  seq_len: 12
+  label_len: 12
+  pred_len: 12
+  test_stride: 1   # evaluate every test window, matching the benchmark convention (no subsampling)

@@ -1,10 +1,15 @@
 # PEMS-08 (Caltrans PeMS traffic flow/occupancy/speed, 5-min intervals).
-# Not usable until you've downloaded PEMS08.npz (ASTGCN/STSGCN/AGCRN's own
-# distribution: a 'data' array shaped [T, N, 3] = flow/occupancy/speed) and
-# built graph.npz via scripts/build_traffic_graph.py from the distributed
-# distance/adjacency CSV. `start_time` below is PEMS08's commonly-cited
-# release start date -- confirm it against your own copy's documentation;
-# without a correct start_time, day-of-week signal is zeroed out (see
+# Download + build graph.npz with
+# `python scripts/download_pems_dataset.py --dataset pems08`.
+# start_time="2016-07-01": month-range ("July to August in 2016", 170
+# detectors, "3 features: flow, occupy, speed") is confirmed from the
+# original ASTGCN authors' own repo README (Davidham3/ASTGCN-2019-mxnet,
+# predecessor of today's guoshnBJTU/ASTGCN-r-pytorch / ASTGNN -- the same
+# source this dataset is downloaded from). Exact day (July 1) is this
+# repo's own inference: 17856 samples * 5min = exactly 62 days, matching
+# Jul 1 -> Aug 31 2016 precisely -- not itself stated verbatim in that
+# README, which only gives month-level granularity. Without a correct
+# start_time, day-of-week signal is zeroed out (see
 # st_numeric_baselines.data.io.load_pems08's docstring) rather than fabricated.
 dataset:
   name: pems08
@@ -23,13 +28,16 @@ graph:
   path: data/pems08/graph.npz
 
 split:
-  # Dense regularly-sampled numeric panel -- ratio split (field convention).
+  # 6:2:2 chronological ratio split -- the standard convention for this
+  # dataset family (ASTGCN/STSGCN/AGCRN and most follow-on benchmark papers),
+  # confirmed as the dominant convention across the literature evaluating
+  # these datasets, not a count-based default we picked ourselves.
   mode: ratio
-  train_ratio: 0.7
-  val_ratio: 0.1
+  train_ratio: 0.6
+  val_ratio: 0.2
 
 window:
   seq_len: 12
   label_len: 12
   pred_len: 12
-  test_stride: 144   # ~25 test windows (vs 3560 at stride 1); cheap LLM-eval subset
+  test_stride: 1   # evaluate every test window, matching the benchmark convention (no subsampling)
