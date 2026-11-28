@@ -1,5 +1,5 @@
 """EnsembleST — a fixed, equal-weight ensemble over a configurable list of
-this registry's own models (mostly spatiotemporal/GNN ones).
+this registry's own models.
 
 This is deliberately the simplest possible combination rule — plain
 averaging, zero extra trainable parameters — matching the "zero-parameter
@@ -10,12 +10,16 @@ selected sub-model itself on the same data, so it's usable directly via
 ``run_one.py --model ensemble_st`` like any other model, with no separate
 orchestration script and no dependency on other runs already existing.
 
-Sub-models are expected to be GNN models (this registry's ``GraphWindowDataset``
-convention — one batch item is *all* N nodes for one time window), since
-that's what "mostly ST-based" means here and it's what lets every sub-model
-share the exact same batch shape without per-model special-casing. A
-non-GNN sub-model (one with no ``_graph_dataloaders`` after its own
-``fit()``) is rejected with a clear error rather than silently mishandled.
+Sub-models may be a mix of GNN models (this registry's ``GraphWindowDataset``
+convention — one batch item is *all* N nodes for one time window) and plain
+per-node models (``WindowDataset`` convention — one batch item is one node's
+one window): ``ensemble_utils.adapt_batch_for_submodel`` reshapes the shared
+graph-shaped batch into the flat view a non-GNN sub-model expects before
+calling its ``predict_batch``, so the two conventions can be mixed freely.
+At least one sub-model must still be a GNN model (expose
+``_graph_dataloaders`` after its own ``fit()``) — that's what lets this
+ensemble itself plug into the standard evaluate_forecaster/case_library
+graph-mode routing; rejected with a clear error otherwise.
 """
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ import torch
 
 from st_numeric_baselines.bundles.datatypes import ProcBundle
 from st_numeric_baselines.models.base import BaseForecaster
+from st_numeric_baselines.models.ensemble_utils import adapt_batch_for_submodel, is_graph_model
 from st_numeric_baselines.models.hparams import apply_hparams
 from st_numeric_baselines.models.registry import get as get_model
 from st_numeric_baselines.models.registry import register
@@ -41,7 +46,10 @@ class EnsembleSTForecaster(BaseForecaster):
         # Instance (not class) attributes -- sub_models/sub_model_hparams are
         # mutable, so a shared class-level default would leak edits across
         # every EnsembleSTForecaster instance.
-        self.sub_models: List[str] = ["gcn_tcn", "stgformer", "dcrnn"]
+        self.sub_models: List[str] = [
+            "dcrnn", "stid", "graph_wavenet", "staeformer",
+            "dlinear", "itransformer", "patchtst", "timemixer",
+        ]
         self.sub_model_hparams: Dict[str, Dict[str, Any]] = {}
         self._fitted: List[BaseForecaster] = []
         self._fitted_names: List[str] = []
@@ -58,7 +66,7 @@ class EnsembleSTForecaster(BaseForecaster):
 
     def _sync_graph_dataloaders(self) -> None:
         for sub in self._fitted:
-            if getattr(sub, "_graph_dataloaders", None) is not None:
+            if is_graph_model(sub):
                 self._graph_dataloaders = sub._graph_dataloaders
                 return
         raise ValueError(
@@ -91,7 +99,10 @@ class EnsembleSTForecaster(BaseForecaster):
     ) -> torch.Tensor:
         if not self._fitted:
             raise RuntimeError(f"{self.name} must be fit() before predict_batch()")
-        preds = [sub.predict_batch(batch, bundle=bundle, device=device) for sub in self._fitted]
+        preds = [
+            sub.predict_batch(adapt_batch_for_submodel(sub, batch), bundle=bundle, device=device)
+            for sub in self._fitted
+        ]
         return torch.stack(preds, dim=0).mean(dim=0)
 
     # ── checkpoint: delegate to each sub-model's own save/load ─────────────────

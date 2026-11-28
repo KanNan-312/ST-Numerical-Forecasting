@@ -58,6 +58,10 @@ from .gnn.astgcn import ASTGCNForecaster  # noqa: F401
 # fixed-weight ensemble over a configurable list of this registry's own models
 from .ensemble_st import EnsembleSTForecaster  # noqa: F401
 
+# learned (XGBoost) meta-learner stacking the same kind of sub-model list,
+# trained on sub-models' out-of-sample val predictions
+from .xgb_stack import XGBStackForecaster  # noqa: F401
+
 # frozen pretrained experts + trained graph-conditioned router
 from .gc_moe import GCMoEForecaster  # noqa: F401
 

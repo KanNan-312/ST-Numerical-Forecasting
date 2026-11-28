@@ -277,23 +277,28 @@ python scripts/run_one.py --dataset dc_house --model dlinear \
 
 ### 4) Submit GPU training jobs on a PBS cluster
 
-```bash
-cp scripts/hpc/hpc.env.example scripts/hpc/hpc.env   # once per cluster -- fill in queue/project/scratch path
-```
+Two ways to submit:
 
-Two ways to submit, mirroring the two ways you already run things locally:
-
-- **A whole batch** (the GPU/scratch equivalent of `scripts/run_all.sh`): edit the
-  `DATASETS`/`MODELS` arrays directly in `scripts/hpc/train_all.pbs` — same idea as editing
-  them in `run_all.sh` — then just `scripts/hpc/submit_all.sh` (no `--dataset`/`--model` flags
-  to juggle; what runs lives in the script).
-- **One one-off run**: `scripts/hpc/submit_train.sh --dataset metr_la --model stgcn --walltime 08:00:00`.
-
-Either way, the job copies the repo + just the dataset(s) it needs to a scratch directory,
-trains there, mirrors progress back to this repo's `runs/`/`logs/` every 60s while it runs,
-moves back the final result, and frees the scratch directory. See `scripts/hpc/submit_all.sh
---help` / `scripts/hpc/submit_train.sh --help` and, importantly, how to track a running job
-(`qstat`, tailing the mirrored log) instead of just waiting for it to finish.
+- **A whole batch** (the GPU equivalent of `bash scripts/run_all.sh`): edit the resource
+  request (and the conda env name, if yours isn't called `spatial-temporal`) directly in
+  `scripts/hpc/train_all.pbs` if needed, then just `qsub scripts/hpc/train_all.pbs` — no
+  wrapper script, no separate env file. It runs `scripts/run_all.sh` straight from
+  `$PBS_O_WORKDIR` (no scratch copy), so it reads `data/` and writes `runs/`/`logs/` in place
+  in the repo; edit the `DATASETS`/`MODELS` arrays in `run_all.sh` itself to change what runs.
+  Note that PBS does **not** start the job in your submission directory — `$PBS_O_WORKDIR` is
+  just where PBS records you ran `qsub` from, so the script still needs (and has) its own
+  `cd "$PBS_O_WORKDIR"` even if you submitted from inside the repo.
+- **One one-off run**:
+  ```bash
+  cp scripts/hpc/hpc.env.example scripts/hpc/hpc.env   # once per cluster -- fill in queue/project/scratch/conda env
+  scripts/hpc/submit_train.sh --dataset metr_la --model stgcn --walltime 08:00:00
+  ```
+  This one's a wrapper because `--dataset`/`--model` are genuinely per-submission arguments
+  `train.pbs` can't know ahead of time. It copies the repo + just that dataset to a scratch
+  directory, trains there, mirrors progress back to this repo's `runs/`/`logs/` every 60s,
+  moves back the final result, and frees scratch. See `scripts/hpc/submit_train.sh --help` and,
+  importantly, how to track a running job (`qstat`, tailing the mirrored log) instead of just
+  waiting for it to finish.
 
 ---
 

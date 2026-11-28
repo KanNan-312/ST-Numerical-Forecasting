@@ -1,0 +1,25 @@
+model:
+  name: xgb_stack
+  hparams:
+    # Learned (XGBoost) meta-learner -- every sub-model is trained with its
+    # own defaults (or an override below) on the same data, then an
+    # XGBRegressor per target channel learns to combine their predictions,
+    # fit on each sub-model's out-of-sample val-split forecast (see
+    # models/xgb_stack.py's module docstring). Same sub-model list as
+    # ensemble_st's default, so the two are directly comparable (fixed
+    # average vs. learned combination).
+    sub_models: [dcrnn, stid, graph_wavenet, staeformer, dlinear, itransformer, patchtst, timemixer]
+    sub_model_hparams: {}
+    # Example per-sub-model override:
+    # sub_model_hparams:
+    #   dcrnn:
+    #     epochs: 20
+
+    # Meta-learner (XGBRegressor) hyperparameters -- same defaults as models/xgb.yaml.
+    n_estimators: 300
+    learning_rate: 0.05
+    max_depth: 6
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    random_state: 0

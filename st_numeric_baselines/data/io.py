@@ -637,17 +637,27 @@ def load_nyc_crime(
 ) -> AlignedData:
     """NYC-crime from the UrbanGPT benchmark — gridded ``[46, 47, T, 4]``
     npz, flattened row-major. Daily sampling, Jan 2016 - Dec 2021 (confirmed
-    coverage). Channel naming: the array is sliced in two confirmed pairs
-    (``[...,0:2]``, ``[...,2:4]``) in UrbanGPT's own loader, and the
-    dataset's HuggingFace preview confirms the two *pair leaders* are
-    ``burglaries``/``larcenies`` counts — the second channel of each pair's
-    exact meaning wasn't independently confirmed, so it's named
-    ``*_aux`` here; override ``feature_cols``/``target_col`` if you know
-    the true semantics. **No predefined graph** (same as ``load_nyc_taxi``;
-    see ``load_nyc_bike`` re: building your own grid adjacency).
+    coverage). Channel naming confirmed from UrbanGPT's own source code
+    (two places agree): ``instruction_generate/load_dataset.py`` slices the
+    array into two pairs, ``[...,0:2]`` ("crime1") and ``[...,2:4]``
+    ("crime2"); ``instruction_generate/instruction_generate.py`` builds each
+    pair's prompt text as "the recorded number of burglaries is {inflow},
+    and the recorded number of larcenies is {outflow}" for crime1, and
+    "...robberies is {inflow}, and...assaults is {outflow}" for crime2 --
+    giving channel order ``[burglaries, larcenies, robberies, assaults]``
+    (previously mislabeled here as ``[burglaries, burglaries_aux,
+    larcenies, larcenies_aux]`` before this was tracked down -- if you ran
+    anything against the old names, ``feature_cols`` indices 1-3 now mean
+    ``larcenies``/``robberies``/``assaults`` instead of
+    ``burglaries_aux``/``larcenies``/``larcenies_aux``). Also consistent
+    with relative channel magnitudes in the actual file: larceny is by far
+    NYC's highest-volume category of these four, matching the channel-1
+    total being ~3x the others. **No predefined graph** (same as
+    ``load_nyc_taxi``; see ``load_nyc_bike`` re: building your own grid
+    adjacency).
     """
     return _load_grid_urbangpt_npz(
-        path, channel_names=["burglaries", "burglaries_aux", "larcenies", "larcenies_aux"], id_prefix="crime_",
+        path, channel_names=["burglaries", "larcenies", "robberies", "assaults"], id_prefix="crime_",
         target_col=target_col, feature_cols=feature_cols, start_time=start_time,
         freq_minutes=freq_minutes, impute=impute,
     )

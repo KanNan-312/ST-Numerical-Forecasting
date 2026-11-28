@@ -5,10 +5,11 @@
 # NO PREDEFINED GRAPH SHIPS WITH THIS DATASET -- same as nyc_taxi.yaml (and
 # the same 46x47-grid note as nyc_bike.yaml applies here too).
 #
-# Channel naming: confirmed array slicing is two pairs ([...,0:2], [...,2:4])
-# and the dataset's own HuggingFace preview confirms the two pair-leaders
-# are burglaries/larcenies counts -- the second channel of each pair's exact
-# meaning wasn't independently confirmed (named *_aux below).
+# Channel naming confirmed from UrbanGPT's own source code (two files
+# agree): the 4 raw channels are [burglaries, larcenies, robberies, assaults]
+# -- see st_numeric_baselines.data.io.load_nyc_crime's docstring for the
+# exact evidence. (Previously mislabeled here as [burglaries,
+# burglaries_aux, larcenies, larcenies_aux] before this was tracked down.)
 #
 # Daily sampling -- time_marks uses (dow, month), not (year, month), so
 # day-of-week periodicity (the dominant signal for daily crime counts)
@@ -20,7 +21,7 @@ data:
   loader: nyc_crime
   path: data/nyc_crime/crime_nyc_2016_1_2021_12_46x47.npz
   target_col: burglaries
-  feature_cols: [burglaries_aux, larcenies, larcenies_aux]
+  feature_cols: [larcenies, robberies, assaults]
   start_time: "2016-01-01"
   freq_minutes: 1440
   impute: true
@@ -30,6 +31,11 @@ graph:
   path: data/nyc_crime/graph.npz  # 4-connected 46x47 grid, built by scripts/build_grid_graph.py
 
 split:
+  # 70/10/20 chronological ratio -- same reasoning as nyc_taxi.yaml:
+  # UrbanGPT's own code uses a fixed index-position training slice plus a
+  # cross-region zero-shot holdout, not a chronological split, so there's
+  # no literature split to match -- this keeps the repo's own standard
+  # chronological-ratio convention instead.
   mode: ratio
   train_ratio: 0.7
   val_ratio: 0.1
@@ -38,4 +44,4 @@ window:
   seq_len: 12
   label_len: 12
   pred_len: 3
-  test_stride: 25   # 18 test windows (vs 436 at stride 1); coprime to 7 -> all weekdays
+  test_stride: 1   # evaluate every test window (no subsampling)

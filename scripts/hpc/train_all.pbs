@@ -1,23 +1,16 @@
 #!/bin/bash
-# PBS job: the GPU/scratch equivalent of scripts/run_all.sh. Edit the
-# DATASETS/MODELS arrays below -- same arrays, same idea, as run_all.sh --
-# then submit the whole batch with one `scripts/hpc/submit_all.sh` call.
-# There's no per-submission --dataset/--model flag to juggle: what runs
-# lives here, in the script, exactly like run_all.sh.
+# PBS job for the whole batch (the GPU equivalent of running
+# `bash scripts/run_all.sh` locally). Submit directly, no wrapper script:
 #
-# What it does, once running on a GPU node:
-#   1. copies the repo (minus runs/, data/, .git/) to scratch, once
-#   2. for each dataset in DATASETS: copies just that dataset's data/<name>/
-#      folder to scratch, then -- like run_all.sh -- runs every model in
-#      MODELS against it sequentially (one model's failure doesn't stop the
-#      rest, same as run_all.sh's own `# set -euo pipefail` being commented
-#      out), then builds its report via scripts/make_report.py
-#   3. mirrors runs/ + the log back to $PBS_O_WORKDIR every 60s throughout,
-#      and once more at the end, then frees scratch
+#   qsub scripts/hpc/train_all.pbs
 #
-# Edit the resource request below to fit the WHOLE batch (sum of every
-# model x dataset run, not just one) -- this is one long job, not one job
-# per model.
+# Edit the #PBS resource lines below directly for your cluster/batch size
+# (same idea as editing the DATASETS/MODELS arrays directly in
+# scripts/run_all.sh to change what runs -- that script is untouched by
+# this file, and not re-edited here). Runs straight from $PBS_O_WORKDIR --
+# no scratch copy, no mirroring: reads data/ and writes runs/+logs/ in
+# place in the repo.
+#
 #PBS -N stnf_train_all
 #PBS -l ncpus=4
 #PBS -l ngpus=1
@@ -25,136 +18,21 @@
 #PBS -l walltime=24:00:00
 #PBS -j oe
 #PBS -k oe
+# Uncomment and fill in if your cluster requires picking a queue/project
+# code explicitly (check `qstat -Q`, or your facility's docs, for the right
+# values -- some clusters route GPU jobs automatically from -l ngpus=N alone):
+# #PBS -q <queue_name>
+# #PBS -P <project_code>
 
 set -euo pipefail
 
-# ============================================================
-# Edit these two arrays -- copy straight from scripts/run_all.sh (or
-# scripts/run_chi_crime.sh) if you want to mirror one of those exactly.
-# NOTE: every name in DATASETS needs a matching configs/dataset/<name>.yaml
-# -- e.g. "chicago_crime_daily" in run_all.sh as of this writing has no such
-# config yet (only "chicago_crime" does), so it's deliberately left out
-# below until that config exists.
-# ============================================================
-DATASETS=(
-  "pems08"
-  "redfin_metro_house"
-)
-MODELS=(
-  "dlinear"
-  "patchtst"
-  "itransformer"
-  "timemixer"
-  "timellm"
-  "gpt4ts"
-  "chronos2_zero"
-  "timesfm_zero"
-  "staeformer"
-  "stid"
-  "agcrn"
-  "mtgnn"
-  "stgcn"
-  "stsgcn"
-  "graph_wavenet"
-  "dcrnn"
-  "d2stgnn"
-  "gman"
-  "astgcn"
-  "testam"
-  "gc_moe"
-)
-TASK="${TASK:-multivariate}"
-# ============================================================
-
-: "${SCRATCH_BASE:=/scratch}"
-: "${PBS_JOBID:=local.$$}"
-
 cd "${PBS_O_WORKDIR:?this script must be run under PBS, or with PBS_O_WORKDIR set for local testing}"
 
-SCRATCH="${SCRATCH_BASE%/}/${USER:-$(id -un)}_${PBS_JOBID%.*}"
-mkdir -p "${SCRATCH}"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate spatial-temporal   # edit this name if your conda env is called something else
 
-MIRROR_INTERVAL_SEC=60
-MIRROR_PID=""
-cleanup() {
-  local status=$?
-  [[ -n "${MIRROR_PID}" ]] && kill "${MIRROR_PID}" 2>/dev/null || true
-  echo "[cleanup] removing scratch ${SCRATCH} (exit=${status})"
-  rm -rf "${SCRATCH}"
-  exit "${status}"
-}
-trap cleanup EXIT
+mkdir -p logs
+LOG_FILE="logs/${PBS_JOBID:-local.$$}.log"
+echo "[setup] host=$(hostname)  job=${PBS_JOBID:-local}  workdir=$(pwd)"
 
-echo "[setup] host=$(hostname)  job=${PBS_JOBID}  scratch=${SCRATCH}"
-echo "[setup] datasets=${DATASETS[*]}"
-echo "[setup] models=${MODELS[*]}"
-
-# ---- 1. copy the repo (minus runs/ and every dataset) to scratch once;
-#         each dataset's own data/ folder is copied lazily below, just
-#         before it's needed ----
-rsync -a \
-  --exclude 'runs/' \
-  --exclude 'data/' \
-  --exclude '.git/' \
-  --exclude '__pycache__/' \
-  --exclude '*.pyc' \
-  --exclude 'logs/' \
-  "${PBS_O_WORKDIR}"/ "${SCRATCH}"/
-mkdir -p "${SCRATCH}/runs" "${SCRATCH}/logs"
-
-# ---- 2. environment ----
-# shellcheck source=/dev/null
-source "${PBS_O_WORKDIR}/scripts/hpc/hpc.env"
-setup_environment
-
-cd "${SCRATCH}"
-LOG_FILE="logs/${PBS_JOBID}.log"
-
-# from here on, everything this script prints also goes to $LOG_FILE (and,
-# via the mirror loop below, back to $PBS_O_WORKDIR/logs/ every 60s)
-exec > >(tee "${LOG_FILE}") 2>&1
-
-mirror_back() {
-  rsync -a "${SCRATCH}/runs/" "${PBS_O_WORKDIR}/runs/" 2>/dev/null || true
-  mkdir -p "${PBS_O_WORKDIR}/logs"
-  cp "${LOG_FILE}" "${PBS_O_WORKDIR}/logs/${PBS_JOBID}.log" 2>/dev/null || true
-}
-( while true; do sleep "${MIRROR_INTERVAL_SEC}"; mirror_back; done ) &
-MIRROR_PID=$!
-
-# ---- 3. the actual batch -- same structure as run_all.sh, including
-#         letting one model's failure not stop the rest ----
-set +e
-for DATASET in "${DATASETS[@]}"; do
-  echo "=== Dataset: ${DATASET} ==="
-  mkdir -p "data/${DATASET}"
-  rsync -a "${PBS_O_WORKDIR}/data/${DATASET}"/ "data/${DATASET}"/
-
-  for MODEL in "${MODELS[@]}"; do
-    echo "Launching dataset=${DATASET}, model=${MODEL}"
-    python scripts/run_one.py \
-      --model "${MODEL}" \
-      --dataset "${DATASET}" \
-      --task "${TASK}" \
-      --device cuda \
-      --out-root "${SCRATCH}/runs"
-  done
-
-  echo "Generating report for ${DATASET}..."
-  python scripts/make_report.py \
-    --runs "${SCRATCH}/runs/${DATASET}/" \
-    --out "${SCRATCH}/runs/${DATASET}/report"
-
-  mirror_back
-done
-echo "All jobs finished."
-set -e
-
-kill "${MIRROR_PID}" 2>/dev/null || true
-MIRROR_PID=""
-
-# ---- 4. move the final result back to the working directory ----
-cd "${PBS_O_WORKDIR}"
-mirror_back
-echo "[done]"
-# cleanup trap (on EXIT) removes ${SCRATCH} after this
+bash scripts/run_all.sh 2>&1 | tee "${LOG_FILE}"

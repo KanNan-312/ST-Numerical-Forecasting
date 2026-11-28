@@ -1,6 +1,4 @@
-# Template config for the full HouseTS dataset (data/raw/HouseTS.csv).
-# Not usable until that file is present locally — see README.md for the
-# download link. Adjust feature_cols/drop_cols once the file is in place.
+# Daily-aggregated Chicago crime panel (data/chicago_crime_daily/CHI_Crimes_daily.csv).
 dataset:
   name: chicago_crime_daily
 
@@ -11,7 +9,7 @@ data:
   target_col: THEFT_Count
   feature_cols: [THEFT_Arrest, THEFT_Domestic, BATTERY_Count, ASSAULT_Count, "CRIMINAL DAMAGE_Count"]
   drop_cols: []
-  freq: D   # monthly
+  freq: D
   impute: true
   n_zip: 0
 
@@ -22,8 +20,14 @@ graph:
   path: data/chicago_crime_daily/graph.npz
 
 split:
-  train_ratio: 0.6
-  val_ratio: 0.2
+  # Calendar-indexed daily panel -- explicit date cutoffs (live data runs
+  # through 2026-06-30; verified via make_split that these boundaries
+  # reproduce the same train/val/test row counts as the previous
+  # train_ratio=0.6/val_ratio=0.2 + test_start_date="2026-01-01" ratio-mode
+  # setup, just expressed as this repo's explicit-date convention instead
+  # of the legacy ratio+test_start_date-alone path).
+  mode: date
+  val_start_date: "2025-04-02"
   test_start_date: "2026-01-01"
 
 window:
